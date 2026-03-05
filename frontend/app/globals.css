@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0d130e;
+  --foreground: #e2e8f0;
+  --accent: #44f91f;
+  --surface: #152016;
+  --glass: rgba(20, 30, 20, 0.4);
+  --border-glow: rgba(68, 249, 31, 0.15);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.font-outfit {
+  font-family: Outfit, system-ui, sans-serif;
+}
+
+.font-inter {
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.glass-panel {
+  background: rgba(20, 30, 20, 0.4);
+  border: 1px solid rgba(68, 249, 31, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-morphism {
+  background: linear-gradient(135deg, rgba(20, 40, 20, 0.6) 0%, rgba(10, 20, 10, 0.3) 100%);
+  border: 1px solid rgba(68, 249, 31, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.neon-glow {
+  box-shadow: 0 0 15px rgba(68, 249, 31, 0.3);
+}
+
+.neon-glow-sm {
+  box-shadow: 0 0 8px rgba(68, 249, 31, 0.2);
+}
+
+.neon-text {
+  text-shadow: 0 0 10px rgba(68, 249, 31, 0.5);
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(68, 249, 31, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(68, 249, 31, 0.3);
+}

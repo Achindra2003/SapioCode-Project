@@ -1,0 +1,656 @@
+"""
+SapioCode Agentic Orchestrator — v2.3.0
+
+Architecture:
+  Single LangGraph StateGraph with MemorySaver persistence.
+  Three tools invoked deterministically via a router node reading the `mode` field:
+
+    tool_hint      → Affect-routed Socratic guidance (gentle / socratic / challenge)
+    tool_chat      → Free-form follow-up dialogue (Socratic constraints, never code)
+    tool_viva      → Viva voce: start session OR verify an answer
+
+  The orchestrator is the ONLY entrypoint. `hint_agent.py` and `dialogue_agent.py`
+  are deleted. Their business logic is fully preserved here.
+
+State lifecycle:
+  • Per-turn fields are written fresh each call (mode, user_message, current_code, …)
+  • Persistent fields are accumulated across calls via MemorySaver (messages, turn_count,
+    viva_session_id, hint_count)
+  • `messages` uses Annotated[list, operator.add] so MemorySaver correctly appends.
+
+Preserved logic:
+  - From dialogue_agent.py : _PERSONA, _CODE_MARKERS, MAX_HISTORY_MESSAGES, message accumulation
+  - From hint_agent.py     : ISSUE_PRIORITY, _pick_teaching_focus(), _pattern_focus(),
+                             LEVEL_INSTRUCTIONS, three tone variants, affect routing thresholds
+  - From viva_agent.py     : start_session(), submit_answer(), get_verdict() — called directly
+"""
+from __future__ import annotations
+
+import operator
+import re
+import logging
+from typing import Annotated, Any, Dict, List, Literal, Optional
+
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from typing_extensions import TypedDict
+
+from app.services.ast_parser import ASTParser, ASTAnalysisResult, SecurityException
+from app.services.groq_client import get_groq_client
+from app.services import viva
+from app.core.config import get_settings
+
+logger = logging.getLogger("sapiocode.orchestrator")
+
+# ─── Singletons ────────────────────────────────────────────────────────────────
+_parser = ASTParser()
+_settings = get_settings()
+_memory = MemorySaver()
+
+# ─── Constants (preserved from dialogue_agent.py) ──────────────────────────────
+MAX_HISTORY_MESSAGES = 20
+
+_PERSONA = """\
+You are a Socratic tutor inside SapioCode — an intelligent coding platform.
+Your absolute rules:
+1. NEVER output code. No code blocks, no inline `code`, no pseudocode.
+2. NEVER give the answer directly. Always ask a guiding question or surface a concept.
+3. Keep every response under 120 words.
+4. Speak to a struggling student with patience and encouragement.
+5. Ground every question in the student's actual code structure (from the AST context provided).
+"""
+
+_CODE_MARKERS = re.compile(
+    r"```|`[^`]+`|\bdef\b|\bclass\b|\breturn\b\s+\S|\bfor\s+\w|\bwhile\s+\(",
+    re.IGNORECASE,
+)
+
+# ─── Affect routing thresholds ─────────────────────────────────────────────────
+FRUSTRATION_HIGH = getattr(_settings, "FRUSTRATION_HIGH", 0.7)
+FRUSTRATION_MED  = getattr(_settings, "FRUSTRATION_MED",  0.4)
+
+# ─── Issue priority (preserved from hint_agent.py) ─────────────────────────────
+ISSUE_PRIORITY = [
+    "infinite_loop_risk",
+    "off_by_one",
+    "recursion_missing_base",
+    "unreachable_code",
+    "variable_shadow",
+    "unused_variable",
+    "magic_number",
+]
+
+# ─── Level instructions (preserved from hint_agent.py) ─────────────────────────
+LEVEL_INSTRUCTIONS: Dict[str, str] = {
+    "gentle": (
+        "The student is frustrated. Be warm, empathetic and encouraging. "
+        "Ask ONE simple open-ended question that gently redirects their thinking. "
+        "Acknowledge the difficulty before asking. Never say 'wrong'."
+    ),
+    "socratic": (
+        "Use the Socratic method. Ask a probing question that exposes the gap "
+        "in the student's understanding. Reference a specific part of their code "
+        "structure (from AST context). Encourage independent discovery."
+    ),
+    "challenge": (
+        "The student is doing well. Pose a deeper 'what if' or 'why does this work' "
+        "question that elevates understanding beyond the immediate task. "
+        "Probe for edge cases or time-complexity intuition."
+    ),
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  STATE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OrchestratorState(TypedDict, total=False):
+    # ── Per-turn inputs (written by caller, not persisted across turns) ──────
+    mode: str              # "hint" | "chat" | "viva_start" | "viva_answer"
+    user_message: str
+    current_code: str
+    compiler_output: str
+    frustration_score: float
+    problem_description: str       # full problem statement
+    failed_test_cases: List[Dict[str, Any]]  # [{input, expected, actual, error}]
+    editor_context: Dict[str, Any] # backspace_rate, paste_count, idle_seconds, run_count
+    thread_id: str                 # echoed through for tools that need a student id
+
+    # ── Persistent (MemorySaver accumulates across calls via thread_id) ───────────
+    messages: Annotated[list, operator.add]   # full conversation history
+    turn_count: int
+    viva_session_id: Optional[str]            # active verification session
+    hint_count: int                           # escalates Socratic depth
+
+    # ── Per-turn computed (not stored beyond this invocation) ────────────────
+    ast_context: Dict[str, Any]
+    teaching_focus: str
+    response: str
+    tool_used: str
+    viva_data: Optional[Dict[str, Any]]       # questions list OR verdict dict
+    critic_pass: int                          # 0 = fail, 1 = pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  HELPER FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _pick_teaching_focus(ast_ctx: Dict[str, Any], result: Optional[ASTAnalysisResult] = None) -> str:
+    """Picks the highest-priority issue from IssueLocation objects, falls back to pattern."""
+    # Use raw IssueLocation objects when result is available
+    if result is not None and result.issue_locations:
+        for priority_type in ISSUE_PRIORITY:
+            for loc in result.issue_locations:
+                if loc.issue_type.value == priority_type:
+                    return loc.description or priority_type
+        # Fallback to first issue description
+        first = result.issue_locations[0]
+        return first.description or "code structure"
+    # Pattern-based fallback
+    return _pattern_focus(ast_ctx)
+
+
+def _pattern_focus(ast_ctx: Dict[str, Any]) -> str:
+    """Preserved from hint_agent.py — derive focus from algorithm pattern."""
+    pattern = ast_ctx.get("algorithm_pattern", "unknown")
+    mapping = {
+        "recursion":        "how the base case prevents infinite recursion",
+        "dynamic_programming": "how overlapping subproblems are memoized",
+        "graph_traversal":  "how visited nodes are tracked to avoid cycles",
+        "sorting":          "what invariant the algorithm maintains each pass",
+        "two_pointer":      "how the two indices converge to the answer",
+        "sliding_window":   "what the window boundary conditions represent",
+        "binary_search":    "why the search space halves on each comparison",
+        "greedy":           "why a locally optimal choice leads to global optimum",
+    }
+    return mapping.get(pattern, f"the core logic of the {pattern} pattern")
+
+
+def _pick_affect_level(frustration: float, hint_count: int, editor_ctx: Dict[str, Any]) -> str:
+    """Route to the right tone based on frustration + editor behaviour."""
+    idle_seconds = editor_ctx.get("idle_seconds", 0.0)
+    run_count    = editor_ctx.get("run_count",    0)
+    backspace_rate = editor_ctx.get("backspace_rate", 0.0)
+
+    # Gentle: visibly stuck or very frustrated
+    if frustration >= FRUSTRATION_HIGH or idle_seconds > 180 or backspace_rate > 0.4:
+        return "gentle"
+    # Challenge: low frustration, actively running code, many iterations
+    if frustration < FRUSTRATION_MED and run_count >= 5 and hint_count < 2:
+        return "challenge"
+    # Default: standard Socratic probing
+    return "socratic"
+
+
+def _build_system_prompt(
+    mode: str,
+    ast_ctx: Dict[str, Any],
+    teaching_focus: str,
+    affect_level: str,
+    history: List[Dict],
+    problem_description: str = "",
+    failed_test_cases: List[Dict[str, Any]] = None,
+    compiler_output: str = "",
+) -> str:
+    """Build the full system prompt for any mode."""
+    ast_summary = (
+        f"Algorithm: {ast_ctx.get('algorithm_pattern','unknown')} | "
+        f"Approach: {ast_ctx.get('student_approach','N/A')} | "
+        f"Functions: {', '.join(str(f) for f in ast_ctx.get('functions', [])) or 'none'} | "
+        f"Concepts: {', '.join(ast_ctx.get('concepts', [])) or 'none'} | "
+        f"Issues: {len(ast_ctx.get('issues', []))} detected"
+    )
+    level_instruction = LEVEL_INSTRUCTIONS.get(affect_level, LEVEL_INSTRUCTIONS["socratic"])
+    history_text = ""
+    if history:
+        lines = []
+        for m in history[-MAX_HISTORY_MESSAGES:]:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            lines.append(f"{role.upper()}: {content}")
+        history_text = "\n".join(lines)
+
+    problem_block = f"=== PROBLEM ===\n{problem_description}\n\n" if problem_description else ""
+
+    failed_block = ""
+    if failed_test_cases:
+        lines = []
+        for i, tc in enumerate(failed_test_cases[:5], 1):
+            lines.append(
+                f"  [{i}] Input: {tc.get('input','')} | "
+                f"Expected: {tc.get('expected_output','')} | "
+                f"Got: {tc.get('actual_output','')} | "
+                f"Error: {tc.get('error','') or 'none'}"
+            )
+        failed_block = "=== FAILING TEST CASES ===\n" + "\n".join(lines) + "\n\n"
+
+    compiler_block = f"=== COMPILER OUTPUT ===\n{compiler_output or '(no errors)'}\n\n"
+
+    if mode == "hint":
+        return (
+            f"{_PERSONA}\n\n"
+            f"{problem_block}"
+            f"=== AST CONTEXT ===\n{ast_summary}\n\n"
+            f"{failed_block}"
+            f"{compiler_block}"
+            f"=== TEACHING FOCUS ===\n{teaching_focus}\n\n"
+            f"=== AFFECT LEVEL: {affect_level.upper()} ===\n{level_instruction}\n\n"
+            "Generate ONE Socratic hint targeting the teaching focus. "
+            "Reference the failing test case if present. "
+            "Never reveal the answer. Never write code."
+        )
+    else:  # chat
+        return (
+            f"{_PERSONA}\n\n"
+            f"{problem_block}"
+            f"=== AST CONTEXT ===\n{ast_summary}\n\n"
+            f"{failed_block}"
+            f"=== TEACHING FOCUS ===\n{teaching_focus}\n\n"
+            f"=== CONVERSATION HISTORY ===\n{history_text}\n\n"
+            "Continue the Socratic dialogue. Respond to the student's latest message "
+            "with a guiding question or conceptual nudge. Never write code."
+        )
+
+
+def _critic_check(text: str) -> bool:
+    """Returns True if response passes (no code detected)."""
+    return not bool(_CODE_MARKERS.search(text))
+
+
+async def _llm_call(system: str, user: str) -> str:
+    """Single LLM call with Kimi K2 → Llama fallover."""
+    client = get_groq_client()
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": user},
+    ]
+    response = await client.chat(messages=messages, temperature=0.4, max_tokens=300)
+    return response.strip()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  NODES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def node_ast_sync(state: OrchestratorState) -> Dict[str, Any]:
+    """Run AST parser on current_code, store context in state."""
+    code = state.get("current_code", "")
+    ast_result: Optional[ASTAnalysisResult] = None
+    try:
+        ast_result = _parser.analyze(code, language=state.get("language", "python"))
+        ctx = _parser.build_llm_context(ast_result)
+    except SecurityException:
+        raise  # bubble up to FastAPI handler
+    except Exception as e:
+        logger.warning("AST parse failed: %s", e)
+        ctx = {
+            "algorithm_pattern": "unknown",
+            "approach_summary": "parse failed",
+            "functions": [],
+            "concepts": [],
+            "issues": [],
+        }
+    focus = _pick_teaching_focus(ctx, ast_result)
+    return {"ast_context": ctx, "teaching_focus": focus}
+
+
+async def node_router(state: OrchestratorState) -> Dict[str, Any]:
+    """
+    Pure routing node — no LLM call.
+    Normalises mode and increments turn_count.
+    """
+    mode = state.get("mode", "chat")
+    turn = state.get("turn_count", 0) + 1
+    return {"mode": mode, "turn_count": turn}
+
+
+# ── TOOL: HINT ─────────────────────────────────────────────────────────────────
+
+async def tool_hint(state: OrchestratorState) -> Dict[str, Any]:
+    """
+    Affect-routed Socratic hint.
+    Tone (gentle / socratic / challenge) is driven by frustration + editor signals.
+    NEVER outputs code. Runs a critic loop (max 3 retries).
+    """
+    frustration  = state.get("frustration_score",    0.0)
+    hint_count   = state.get("hint_count",           0)
+    compiler     = state.get("compiler_output",      "")
+    user_msg     = state.get("user_message",         "Help me with this.")
+    ast_ctx      = state.get("ast_context",          {})
+    focus        = state.get("teaching_focus",       "code logic")
+    messages     = state.get("messages",             [])
+    prob_desc    = state.get("problem_description",  "")
+    failed_tcs   = state.get("failed_test_cases",    [])
+    editor_ctx   = state.get("editor_context",       {})
+
+    affect = _pick_affect_level(frustration, hint_count, editor_ctx)
+    system = _build_system_prompt(
+        "hint", ast_ctx, focus, affect, messages,
+        problem_description=prob_desc,
+        failed_test_cases=failed_tcs,
+        compiler_output=compiler,
+    )
+
+    response = ""
+    for attempt in range(3):
+        raw = await _llm_call(system, user_msg)
+        if _critic_check(raw):
+            response = raw
+            break
+        logger.warning("Hint critic failed attempt %d — retrying", attempt + 1)
+        system += "\n\n[SYSTEM: Your previous response contained code. Rewrite without any code.]"
+        response = raw  # use last attempt even if imperfect
+
+    new_message = [
+        {"role": "user",      "content": user_msg},
+        {"role": "assistant", "content": response},
+    ]
+    return {
+        "response":   response,
+        "tool_used":  f"hint/{affect}",
+        "hint_count": hint_count + 1,
+        "messages":   new_message,
+    }
+
+
+# ── TOOL: CHAT ─────────────────────────────────────────────────────────────────
+
+async def tool_chat(state: OrchestratorState) -> Dict[str, Any]:
+    """
+    Free-form Socratic follow-up dialogue.
+    Logic preserved from dialogue_agent.py: persona, history, critic loop.
+    """
+    frustration  = state.get("frustration_score",   0.0)
+    user_msg     = state.get("user_message",         "")
+    ast_ctx      = state.get("ast_context",          {})
+    focus        = state.get("teaching_focus",       "code logic")
+    messages     = state.get("messages",             [])
+    prob_desc    = state.get("problem_description",  "")
+    failed_tcs   = state.get("failed_test_cases",    [])
+    editor_ctx   = state.get("editor_context",       {})
+
+    # Chat tone is gently adapted to frustration but stays conversational
+    affect = _pick_affect_level(frustration, 0, editor_ctx)
+    system = _build_system_prompt(
+        "chat", ast_ctx, focus, affect, messages,
+        problem_description=prob_desc,
+        failed_test_cases=failed_tcs,
+    )
+
+    response = ""
+    for attempt in range(3):
+        raw = await _llm_call(system, user_msg)
+        if _critic_check(raw):
+            response = raw
+            break
+        logger.warning("Chat critic failed attempt %d — retrying", attempt + 1)
+        system += "\n\n[SYSTEM: Your previous response contained code. Rewrite without any code.]"
+        response = raw
+
+    new_message = [
+        {"role": "user",      "content": user_msg},
+        {"role": "assistant", "content": response},
+    ]
+    return {
+        "response":  response,
+        "tool_used": "chat",
+        "messages":  new_message,
+    }
+
+
+# ── TOOL: VIVA START ───────────────────────────────────────────────────────────
+
+async def tool_viva_start(state: OrchestratorState) -> Dict[str, Any]:
+    """
+    Starts a new viva voce session.
+    Delegates question generation to viva_agent.start_session() (sync).
+    """
+    code        = state.get("current_code", "")
+    user_msg    = state.get("user_message", "")
+    thread_id   = state.get("thread_id", "anon")  # use thread_id as student_id proxy
+    num_q       = 3  # default
+
+    try:
+        # start_session is a sync function — call directly (no await)
+        session = viva.start_session(
+            student_id=thread_id,
+            code=code,
+            language="python",
+            num_questions=num_q,
+        )
+        # session is a VivaSession dataclass
+        session_id = session.session_id
+        # Convert VivaQuestion dataclasses to plain dicts for JSON serialisation
+        questions = [
+            {"id": q.id, "question_text": q.question_text, "difficulty": q.difficulty}
+            for q in session.questions
+        ]
+        first_q = questions[0]["question_text"] if questions else "Let's start the viva."
+        response = (
+            f"Viva started! I'll ask you {len(questions)} question(s) about your code.\n\n"
+            f"**Question 1:** {first_q}"
+        )
+        new_message = [
+            {"role": "user",      "content": user_msg or "Start viva."},
+            {"role": "assistant", "content": response},
+        ]
+        return {
+            "response":        response,
+            "tool_used":       "viva_start",
+            "viva_session_id": session_id,
+            "viva_data":       {"questions": questions, "session_id": session_id},
+            "messages":        new_message,
+        }
+    except Exception as e:
+        logger.error("Viva start failed: %s", e)
+        err_response = "I wasn't able to generate viva questions right now. Please try again."
+        return {
+            "response":  err_response,
+            "tool_used": "viva_start_error",
+            "messages":  [
+                {"role": "user",      "content": user_msg or "Start viva."},
+                {"role": "assistant", "content": err_response},
+            ],
+        }
+
+
+# ── TOOL: VIVA ANSWER ─────────────────────────────────────────────────────────
+
+async def tool_viva_answer(state: OrchestratorState) -> Dict[str, Any]:
+    """
+    Submits a student answer to the active viva session.
+    Delegates to viva_agent.submit_answer() (async) / get_verdict() (sync).
+    """
+    session_id  = state.get("viva_session_id")
+    user_msg    = state.get("user_message", "")
+
+    if not session_id:
+        response = "No active viva session found. Use mode='viva_start' first."
+        return {
+            "response":  response,
+            "tool_used": "viva_answer_error",
+            "messages":  [
+                {"role": "user",      "content": user_msg},
+                {"role": "assistant", "content": response},
+            ],
+        }
+
+    try:
+        # submit_answer is async, returns AnswerEvaluation dataclass
+        evaluation = await viva.submit_answer(
+            session_id=session_id,
+            answer_text=user_msg,
+        )
+        feedback = evaluation.feedback
+        score    = evaluation.score
+
+        # Check if session is complete by inspecting current_index
+        session = viva.get_session(session_id)
+        session_complete = (session is not None and
+                            session.current_index >= len(session.questions))
+
+        if session_complete:
+            # get_verdict is sync — no await
+            verdict_data = viva.get_verdict(session_id)
+            verdict = verdict_data.get("verdict", "inconclusive")
+            avg     = verdict_data.get("average_score", 0.0)
+            response = (
+                f"Verification complete! Verdict: **{verdict.upper()}** "
+                f"(average score: {avg:.0%})\n\n"
+                f"{verdict_data.get('message', '')}"
+            )
+            return {
+                "response":        response,
+                "tool_used":       "viva_verdict",
+                "viva_session_id": None,  # clear session
+                "viva_data":       verdict_data,
+                "messages":        [
+                    {"role": "user",      "content": user_msg},
+                    {"role": "assistant", "content": response},
+                ],
+            }
+
+        # More questions remain — show next question
+        next_q_text = ""
+        if session and session.current_index < len(session.questions):
+            next_q_text = session.questions[session.current_index].question_text
+
+        response = (
+            f"{'Good effort! ' if score >= 0.5 else 'Keep thinking! '}{feedback}"
+            + (f"\n\n**Next question:** {next_q_text}" if next_q_text else "")
+        )
+        return {
+            "response":  response,
+            "tool_used": "viva_answer",
+            "viva_data": {
+                "score":            score,
+                "feedback":         feedback,
+                "matched_concepts": evaluation.matched_concepts,
+                "missing_concepts": evaluation.missing_concepts,
+                "is_acceptable":    evaluation.is_acceptable,
+            },
+            "messages":  [
+                {"role": "user",      "content": user_msg},
+                {"role": "assistant", "content": response},
+            ],
+        }
+    except Exception as e:
+        logger.error("Viva answer failed: %s", e)
+        err_response = "Error processing your answer. Please try again."
+        return {
+            "response":  err_response,
+            "tool_used": "viva_answer_error",
+            "messages":  [
+                {"role": "user",      "content": user_msg},
+                {"role": "assistant", "content": err_response},
+            ],
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  GRAPH CONSTRUCTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _route_mode(state: OrchestratorState) -> str:
+    """Conditional edge: maps mode → tool node name."""
+    mode = state.get("mode", "chat")
+    mapping = {
+        "hint":        "tool_hint",
+        "chat":        "tool_chat",
+        "viva_start":  "tool_viva_start",
+        "viva_answer": "tool_viva_answer",
+    }
+    return mapping.get(mode, "tool_chat")
+
+
+def build_orchestrator_graph() -> StateGraph:
+    g = StateGraph(OrchestratorState)
+
+    # Nodes
+    g.add_node("ast_sync",        node_ast_sync)
+    g.add_node("router",          node_router)
+    g.add_node("tool_hint",       tool_hint)
+    g.add_node("tool_chat",       tool_chat)
+    g.add_node("tool_viva_start", tool_viva_start)
+    g.add_node("tool_viva_answer",tool_viva_answer)
+
+    # Edges
+    g.set_entry_point("ast_sync")
+    g.add_edge("ast_sync", "router")
+
+    # Conditional dispatch from router → correct tool
+    g.add_conditional_edges(
+        "router",
+        _route_mode,
+        {
+            "tool_hint":        "tool_hint",
+            "tool_chat":        "tool_chat",
+            "tool_viva_start":  "tool_viva_start",
+            "tool_viva_answer": "tool_viva_answer",
+        },
+    )
+
+    # All tools → END
+    for tool_node in ["tool_hint", "tool_chat", "tool_viva_start", "tool_viva_answer"]:
+        g.add_edge(tool_node, END)
+
+    return g
+
+
+# ── Compiled singleton ─────────────────────────────────────────────────────────
+_graph = build_orchestrator_graph().compile(checkpointer=_memory)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PUBLIC API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def run_turn(
+    *,
+    thread_id:           str,
+    mode:                str,
+    user_message:        str,
+    current_code:        str,
+    compiler_output:     str             = "",
+    frustration_score:   float           = 0.0,
+    problem_description: str             = "",
+    failed_test_cases:   List[Dict]      = None,
+    editor_context:      Dict[str, Any]  = None,
+) -> Dict[str, Any]:
+    """
+    Single public entry-point for the orchestrator.
+    Called from routes.py for every POST /api/agent/chat request.
+
+    Returns a dict with:
+        response        str   — Socratic response text
+        turn_count      int   — total conversation turns
+        tool_used       str   — which tool fired
+        ast_metadata    dict  — fresh AST analysis
+        teaching_focus  str   — targeted concept
+        viva_data       dict  — questions / verdict (if viva mode)
+        thread_id       str   — echoed
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+    inputs: OrchestratorState = {
+        "mode":                mode,
+        "user_message":        user_message,
+        "current_code":        current_code,
+        "compiler_output":     compiler_output,
+        "frustration_score":   frustration_score,
+        "problem_description": problem_description,
+        "failed_test_cases":   failed_test_cases or [],
+        "editor_context":      editor_context or {},
+        "thread_id":           thread_id,
+    }
+
+    final_state = await _graph.ainvoke(inputs, config=config)
+
+    return {
+        "thread_id":     thread_id,
+        "response":      final_state.get("response", ""),
+        "turn_count":    final_state.get("turn_count", 1),
+        "tool_used":     final_state.get("tool_used", "unknown"),
+        "ast_metadata":  final_state.get("ast_context", {}),
+        "teaching_focus":final_state.get("teaching_focus", ""),
+        "viva_data":     final_state.get("viva_data"),
+    }
