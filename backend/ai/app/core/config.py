@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
 
     # ── Service tuning ────────────────────────────
-    PORT: int = 8002
+    PORT: int = 8003
     LOG_LEVEL: str = "info"
 
     # ── Hint engine thresholds ────────────────────

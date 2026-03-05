@@ -16,6 +16,7 @@ langchain-core>=0.3.0
 
 # ── Utilities ──
 python-dotenv>=1.0.0
+python-multipart>=0.0.9
 
 # ── AST / Tree-sitter (multi-language parsing) ──
 tree-sitter>=0.24.0
