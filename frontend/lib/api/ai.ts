@@ -1,6 +1,6 @@
 import { ChatRequest, ChatResponse } from "../types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8002/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8003/api";
 
 /**
  * The actual running backend is SapioCode Intelligence Engine v2.4.0
