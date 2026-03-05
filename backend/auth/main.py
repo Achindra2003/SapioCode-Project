@@ -49,9 +49,8 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CORSErrorMiddleware)
 
-origins = [
-    "http://localhost:3000",
-]
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+origins = [o.strip() for o in _raw_origins.split(",")]
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const AI_BACKEND =
   process.env.AI_API_URL ||
   process.env.NEXT_PUBLIC_AI_API_URL ||
-  "http://localhost:8002/api";
+  "http://localhost:8003/api";
 
 /**
  * Proxy: POST /api/ai/generate-tests → AI backend /api/problems/generate-tests

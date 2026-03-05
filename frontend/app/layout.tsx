@@ -6,6 +6,14 @@ export const metadata: Metadata = {
   description: "Learn to code with AI-powered Socratic tutoring",
 };
 
+// Warm up Render free-tier backends (they sleep after 15min idle)
+if (typeof window !== "undefined") {
+  const AUTH = process.env.NEXT_PUBLIC_AUTH_API_URL || "http://localhost:8000";
+  const AI   = (process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8003/api").replace(/\/api$/, "");
+  fetch(`${AUTH}/health`).catch(() => {});
+  fetch(`${AI}/api/health`).catch(() => {});
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{

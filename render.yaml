@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: sapiocode-auth
+    runtime: docker
+    dockerfilePath: ./backend/auth/Dockerfile
+    dockerContext: ./backend/auth
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+  - type: web
+    name: sapiocode-ai
+    runtime: docker
+    dockerfilePath: ./backend/ai/Dockerfile
+    dockerContext: ./backend/ai
+    healthCheckPath: /api/health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PORT
+        value: "8003"
