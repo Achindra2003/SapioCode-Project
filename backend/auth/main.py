@@ -1,8 +1,6 @@
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-import os
 import logging
 import traceback
 
@@ -48,17 +46,6 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(CORSErrorMiddleware)
-
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
-origins = [o.strip() for o in _raw_origins.split(",")]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.include_router(auth_router)
 app.include_router(progress_router)
