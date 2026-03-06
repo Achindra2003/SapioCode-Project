@@ -64,8 +64,8 @@ start "SapioCode - Auth Backend (Port 8000)" cmd /k "cd /d %~dp0backend\auth && 
 timeout /t 2 /nobreak >nul
 
 :: Start AI Backend
-echo [5/6] Starting AI Backend on port 8002...
-start "SapioCode - AI Backend (Port 8002)" cmd /k "cd /d %~dp0backend\ai && python -m uvicorn app.main:app --reload --port 8002"
+echo [5/6] Starting AI Backend on port 8003...
+start "SapioCode - AI Backend (Port 8003)" cmd /k "cd /d %~dp0backend\ai && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8003"
 timeout /t 2 /nobreak >nul
 
 :: Start Frontend
@@ -78,7 +78,7 @@ echo   All services started!
 echo ========================================
 echo.
 echo   Auth Backend:  http://localhost:8000
-echo   AI Backend:    http://localhost:8002
+echo   AI Backend:    http://localhost:8003
 echo   Frontend:      http://localhost:3000
 echo.
 echo   Press any key to open the app in browser...

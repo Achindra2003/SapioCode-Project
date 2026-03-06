@@ -25,7 +25,14 @@ class _RateLimited(Exception):
 
 
 class GroqClient:
-    """Async Groq chat-completion client with dual-model failover."""
+    """Async Groq chat-completion client with dual-model failover.
+
+    Strategy:
+      1. Primary model (Kimi K2) — single fast attempt.
+      2. On 429 / 503 / 500 / timeout → immediate failover to fallback (Llama 3.3).
+      3. Fallback gets 2 retries with exponential back-off.
+      4. Separate connect vs read timeouts for faster failure detection.
+    """
 
     def __init__(self):
         s = get_settings()
@@ -34,11 +41,14 @@ class GroqClient:
             headers={
                 "Authorization": f"Bearer {s.GROQ_API_KEY}",
             },
-            timeout=30.0,
+            timeout=httpx.Timeout(connect=5.0, read=20.0, write=5.0, pool=5.0),
         )
         self._primary = s.GROQ_PRIMARY_MODEL
         self._fallback = s.GROQ_FALLBACK_MODEL
         self._active_model = self._primary
+        # Track consecutive primary failures to skip it temporarily
+        self._primary_failures = 0
+        self._PRIMARY_SKIP_THRESHOLD = 3  # skip primary after N consecutive failures
 
     # ── Public API ──────────────────────────────────────
 
@@ -53,7 +63,8 @@ class GroqClient:
         """
         Send a chat-completion request with automatic failover.
 
-        Flow: Kimi K2 → (429?) → Llama 3.3 with 3-retry back-off.
+        Flow: Primary → (429/503/5xx/timeout) → Fallback with 2-retry back-off.
+        If primary has failed N times consecutively, skip it entirely.
         """
         payload: Dict[str, Any] = {
             "messages": messages,
@@ -64,23 +75,39 @@ class GroqClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        # ── Attempt 1: Primary model (Kimi K2) ──
-        payload["model"] = self._primary
-        try:
-            text = await self._post(payload)
-            self._active_model = self._primary
-            return text
-        except _RateLimited:
-            logger.warning(
-                "Primary model (Kimi) limited; failing over to Llama-3."
-            )
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                "Primary model HTTP %s; trying fallback.",
-                exc.response.status_code,
+        # ── Attempt primary (skip if it's been consistently failing) ──
+        if self._primary_failures < self._PRIMARY_SKIP_THRESHOLD:
+            payload["model"] = self._primary
+            try:
+                text = await self._post(payload)
+                self._active_model = self._primary
+                self._primary_failures = 0  # reset on success
+                return text
+            except _RateLimited:
+                self._primary_failures += 1
+                logger.warning(
+                    "Primary model rate-limited (fail #%d); failing over.",
+                    self._primary_failures,
+                )
+            except httpx.HTTPStatusError as exc:
+                self._primary_failures += 1
+                logger.warning(
+                    "Primary model HTTP %s (fail #%d); failing over.",
+                    exc.response.status_code, self._primary_failures,
+                )
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as exc:
+                self._primary_failures += 1
+                logger.warning(
+                    "Primary model timeout/connect error (fail #%d): %s; failing over.",
+                    self._primary_failures, type(exc).__name__,
+                )
+        else:
+            logger.info(
+                "Primary model skipped (%d consecutive failures); using fallback directly.",
+                self._primary_failures,
             )
 
-        # ── Attempts 2–4: Fallback model (Llama 3.3) with retry ──
+        # ── Fallback model with 2 retries ──
         payload["model"] = self._fallback
         last_err: Optional[Exception] = None
         for attempt in range(3):
@@ -90,16 +117,17 @@ class GroqClient:
                 return text
             except _RateLimited as exc:
                 last_err = exc
-                wait = 2.0 * (attempt + 1)
+                wait = 1.5 * (attempt + 1)
                 logger.warning(
-                    "Fallback model rate-limited, retry %d/3 in %.1fs",
+                    "Fallback rate-limited, retry %d/3 in %.1fs",
                     attempt + 1, wait,
                 )
                 await asyncio.sleep(wait)
-            except (httpx.HTTPStatusError, httpx.ReadTimeout) as exc:
+            except (httpx.HTTPStatusError, httpx.ReadTimeout, httpx.ConnectTimeout) as exc:
                 last_err = exc
                 if attempt < 2:
-                    await asyncio.sleep(1.5 * (attempt + 1))
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                    logger.warning("Fallback error retry %d/3: %s", attempt + 1, exc)
 
         raise RuntimeError(f"Both LLM models exhausted after retries: {last_err}")
 

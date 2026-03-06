@@ -12,7 +12,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Global error:", error);
+    // Error boundary triggered — logged by Next.js framework
   }, [error]);
 
   return (

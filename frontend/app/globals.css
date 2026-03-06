@@ -50,10 +50,6 @@ body {
   animation: fade-in 0.3s ease-out;
 }
 
-.font-outfit {
-  font-family: Outfit, system-ui, sans-serif;
-}
-
 .font-inter {
   font-family: Inter, system-ui, sans-serif;
 }

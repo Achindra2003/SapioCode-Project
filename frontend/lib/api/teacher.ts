@@ -28,9 +28,15 @@ async function teacherRequest<T>(
       ...(options.headers || {}),
     },
   });
-  const data = await response.json();
+  let data: Record<string, unknown>;
+  try {
+    data = await response.json();
+  } catch {
+    if (response.ok) throw new Error("Empty response from server");
+    throw new Error(`Server error (${response.status})`);
+  }
   if (!response.ok) {
-    throw new Error(data.detail || "Teacher API error");
+    throw new Error((data.detail as string) || "Teacher API error");
   }
   return data as T;
 }
@@ -234,20 +240,37 @@ export const teacherAPI = {
 
   // AI Problem Generation (proxied via Next.js /api/ai/generate to avoid CORS)
   generateProblem: async (prompt: string, difficulty: string = "intermediate"): Promise<GeneratedProblem> => {
-    const response = await fetch("/api/ai/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        difficulty,
-        language: "python",
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "AI generation failed");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90_000);
+    try {
+      const response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          difficulty,
+          language: "python",
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(response.ok ? "Empty response from AI" : `AI service error (${response.status})`);
+      }
+      if (!response.ok) {
+        throw new Error(data.detail || "AI generation failed");
+      }
+      return data;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error("Problem generation timed out — the AI service may be starting up. Please try again.");
+      }
+      throw err;
     }
-    return data;
   },
 
   // AI Test Case Generation (proxied via Next.js /api/ai/generate-tests to avoid CORS)
@@ -257,29 +280,50 @@ export const teacherAPI = {
     test_cases: Array<{ input: string; expected_output: string; explanation: string; category: string }>;
     notes: string;
   }> => {
-    const response = await fetch("/api/ai/generate-tests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        problem_description: problemDescription,
-        language: "python3",
-        num_cases: numCases,
-        difficulty_spread: true,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "Test case generation failed");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90_000);
+    try {
+      const response = await fetch("/api/ai/generate-tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problem_description: problemDescription,
+          language: "python3",
+          num_cases: numCases,
+          difficulty_spread: true,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(response.ok ? "Empty response from AI" : `AI service error (${response.status})`);
+      }
+      if (!response.ok) {
+        throw new Error(data.detail || "Test case generation failed");
+      }
+      return data;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error("Test generation timed out — the AI service may be starting up. Please try again.");
+      }
+      throw err;
     }
-    return data;
   },
 };
 
 // ── Student Skill Tree ────────────────────────
 
 export const skillTreeApi = {
-  getSkillTree: (userId: string): Promise<SkillTreeData> =>
-    teacherRequest(`/progress/student/${userId}/skill-tree`),
+  getSkillTree: (userId: string, classId?: string): Promise<SkillTreeData> => {
+    const url = classId
+      ? `/progress/student/${userId}/skill-tree?class_id=${classId}`
+      : `/progress/student/${userId}/skill-tree`;
+    return teacherRequest(url);
+  },
 };
 
 // ── Student Classes ────────────────────────

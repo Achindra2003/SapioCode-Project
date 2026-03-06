@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BookOpen, LayoutDashboard, Map } from "lucide-react";
+import { ArrowLeft, BookOpen, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProgress } from "@/hooks/useProgress";
 import { getQuestionsByTopic } from "@/lib/questions";
@@ -31,8 +31,9 @@ export default function ProgressPage() {
   const selectedTopic = topicStatuses.find((t) => t.id === selectedTopicId);
   const selectedQuestions = selectedTopicId ? getQuestionsByTopic(selectedTopicId) : [];
 
-  const overallProgress =
-    topicStatuses.reduce((acc, t) => acc + t.completion_rate, 0) / topicStatuses.length;
+  // Calculate practice-specific stats
+  const masteredCount = progress.filter((p) => p.status === "mastered").length;
+  const totalCount = topicStatuses.reduce((acc, t) => acc + t.total_count, 0);
 
   if (!isMounted || !isAuthenticated || !user) {
     return (
@@ -58,31 +59,26 @@ export default function ProgressPage() {
             </button>
             <div className="flex items-center gap-2">
               <BookOpen className="w-6 h-6 text-[#44f91f]" />
-              <h1 className="text-xl font-bold text-white">Learning Progress</h1>
+              <div>
+                <h1 className="text-xl font-bold text-white">Practice Library</h1>
+                <p className="text-xs text-slate-500">
+                  {masteredCount}/{totalCount} problems completed
+                </p>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/progress/skill-tree")}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#44f91f]/10 border border-[#44f91f]/20 rounded-lg text-sm text-[#44f91f] hover:bg-[#44f91f]/20 transition-colors"
-            >
-              <Map className="w-4 h-4" />
-              Game Map
-            </button>
-            <div className="hidden md:flex flex-col items-end">
-              <span className="text-sm font-semibold text-white">{user.full_name}</span>
-              <span className="text-xs text-slate-400">Overall: {Math.round(overallProgress * 100)}%</span>
-            </div>
-            <ProgressCircle percentage={overallProgress * 100} size={40} strokeWidth={4} />
+          <div className="hidden md:flex items-center gap-3">
+            <span className="text-sm font-semibold text-white">{user.full_name}</span>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 relative z-10">
         <div className="flex flex-col md:flex-row gap-8">
+          {/* Topic Sidebar */}
           <div className="w-full md:w-1/3">
             <h2 className="text-sm font-semibold text-[#44f91f]/60 uppercase tracking-wider mb-4">
-              Learning Stages
+              Topics
             </h2>
             <SkillTree
               topics={topicStatuses}
@@ -91,6 +87,7 @@ export default function ProgressPage() {
             />
           </div>
 
+          {/* Question Panel */}
           <div className="flex-1">
             {selectedTopic ? (
               <div className="glass-panel rounded-2xl overflow-hidden">
@@ -123,7 +120,9 @@ export default function ProgressPage() {
                   Select a Topic
                 </h3>
                 <p className="text-slate-400">
-                  Choose a topic from the left to view its questions and start learning.
+                  Choose a topic from the sidebar to browse practice problems.
+                  <br />
+                  These are independent of your class assignments.
                 </p>
               </div>
             )}

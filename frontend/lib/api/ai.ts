@@ -2,6 +2,11 @@ import { ChatRequest, ChatResponse } from "../types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8003/api";
 
+/** Timeout for AI requests (ms) — balanced: fast enough to fail, long enough for cold-starts */
+const AI_TIMEOUT_MS = 45_000;
+/** Max retries for transient (network / 502 / 503) failures */
+const MAX_RETRIES = 2;
+
 /**
  * The actual running backend is SapioCode Intelligence Engine v2.4.0
  * at sapiocode-unified/backend/ai/ with a SINGLE unified endpoint:
@@ -21,18 +26,62 @@ async function apiRequest<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let lastError: Error | null = null;
 
-  const data = await response.json();
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Back off before retries (0, 2s, 4s)
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
 
-  if (!response.ok) {
-    throw new Error(data.detail || data.error || "AI service error");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      // Retry on 502/503 (Render waking up or overloaded)
+      if ((response.status === 502 || response.status === 503) && attempt < MAX_RETRIES) {
+        lastError = new Error(`AI service temporarily unavailable (${response.status})`);
+        continue;
+      }
+
+      let data: Record<string, unknown>;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(response.ok ? "Empty response" : `AI service error (${response.status})`);
+      }
+
+      if (!response.ok) {
+        throw new Error((data.detail as string) || (data.error as string) || "AI service error");
+      }
+
+      return data as T;
+    } catch (err) {
+      clearTimeout(timer);
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        lastError = new Error("AI request timed out. The service may be busy — please try again.");
+        if (attempt < MAX_RETRIES) continue;
+      } else if (err instanceof TypeError && /fetch|network/i.test(err.message)) {
+        // Network-level failure (server unreachable, DNS, etc.)
+        lastError = new Error("Cannot reach the AI service. Please check your connection and try again.");
+        if (attempt < MAX_RETRIES) continue;
+      } else {
+        // Non-retryable error (400, 422, structured error responses, etc.)
+        throw err;
+      }
+    }
   }
 
-  return data as T;
+  throw lastError ?? new Error("AI service unavailable after retries");
 }
 
 // ── Unified agent/chat response shape from the backend ──
@@ -124,8 +173,11 @@ export const aiApi = {
       body: JSON.stringify({ code, language }),
     }),
 
-  health: (): Promise<{ status: string; version: string }> =>
-    apiRequest("/health"),
+  health: (): Promise<{ status: string; version: string }> => {
+    // /health is mounted at app root, not under /api prefix
+    const baseUrl = (process.env.NEXT_PUBLIC_AI_API_URL || "http://localhost:8003/api").replace(/\/api$/, "");
+    return fetch(`${baseUrl}/health`).then(r => r.json());
+  },
 };
 
 // ══════════════════════════════════════════════════════════════

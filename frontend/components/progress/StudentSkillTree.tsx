@@ -12,11 +12,13 @@ import { skillTreeApi, type SkillTreeNode, type SkillTreeData } from "@/lib/api/
 
 interface StudentSkillTreeProps {
   userId: string;
+  classId?: string;
   onNodeClick?: (node: SkillTreeNode) => void;
 }
 
 export default function StudentSkillTree({
   userId,
+  classId,
   onNodeClick,
 }: StudentSkillTreeProps) {
   const [data, setData] = useState<SkillTreeData | null>(null);
@@ -28,14 +30,14 @@ export default function StudentSkillTree({
     if (!userId) return;
     setLoading(true);
     skillTreeApi
-      .getSkillTree(userId)
+      .getSkillTree(userId, classId)
       .then((res) => {
         setData(res);
         setError(null);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [userId, classId]);
 
   // Auto-scroll to current level
   useEffect(() => {

@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Map, BookOpen } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import StudentSkillTree from "@/components/progress/StudentSkillTree";
 import type { SkillTreeNode } from "@/lib/api/teacher";
 
-export default function SkillTreePage() {
+function SkillTreeContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
+
+  const classId = searchParams.get("classId");
+  const className = searchParams.get("className");
 
   useEffect(() => {
     setIsMounted(true);
@@ -24,7 +28,7 @@ export default function SkillTreePage() {
 
   const handleNodeClick = (node: SkillTreeNode) => {
     // Navigate to the workbench with this problem
-    router.push(`/workbench?problem=${node.id}`);
+    router.push(`/workbench?problem=${node.id}${classId ? `&classId=${classId}` : ""}`);
   };
 
   if (!isMounted || !isAuthenticated || !user) {
@@ -43,29 +47,42 @@ export default function SkillTreePage() {
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => router.push("/progress")}
+              onClick={() => router.push("/dashboard")}
               className="p-2 hover:bg-white/5 rounded-full transition-colors"
             >
               <ArrowLeft className="w-5 h-5 text-slate-400" />
             </button>
             <div className="flex items-center gap-2">
               <Map className="w-6 h-6 text-[#44f91f]" />
-              <h1 className="text-xl font-bold text-white">Skill Tree</h1>
+              <div>
+                <h1 className="text-xl font-bold text-white">Skill Tree</h1>
+                {className && (
+                  <p className="text-xs text-slate-400">{className}</p>
+                )}
+              </div>
             </div>
           </div>
           <button
-            onClick={() => router.push("/progress")}
+            onClick={() => router.push("/dashboard")}
             className="flex items-center gap-2 text-sm text-slate-400 hover:text-[#44f91f] transition-colors"
           >
             <BookOpen className="w-4 h-4" />
-            Classic View
+            Dashboard
           </button>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8 relative z-10">
-        <StudentSkillTree userId={user.id} onNodeClick={handleNodeClick} />
+        <StudentSkillTree userId={user.id} classId={classId || undefined} onNodeClick={handleNodeClick} />
       </main>
     </div>
+  );
+}
+
+export default function SkillTreePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0d130e]" />}>
+      <SkillTreeContent />
+    </Suspense>
   );
 }

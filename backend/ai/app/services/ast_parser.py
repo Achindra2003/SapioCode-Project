@@ -582,8 +582,19 @@ class ASTParser:
         """Map language aliases to canonical key."""
         return _LANG_ALIASES.get(language.lower().strip())
 
+    def analyze_safe(self, code: str, language: str = "python") -> ASTAnalysisResult:
+        """Like analyze() but skips the security / blocked-import check.
+
+        Used by viva — we need structural info about the code for question
+        generation, even if the code contains imports we wouldn't let execute.
+        """
+        return self._analyze_internal(code, language, skip_security=True)
+
     def analyze(self, code: str, language: str = "python") -> ASTAnalysisResult:
         """Primary entry point — dispatches by language via Tree-sitter."""
+        return self._analyze_internal(code, language, skip_security=False)
+
+    def _analyze_internal(self, code: str, language: str, *, skip_security: bool = False) -> ASTAnalysisResult:
         lang = self._resolve_language(language)
         if not lang or lang not in self._parsers:
             return ASTAnalysisResult(
@@ -597,7 +608,7 @@ class ASTParser:
         source = code.encode("utf-8")
 
         # ── Security check (Python only — uses Python ast module) ──
-        if lang == "python":
+        if lang == "python" and not skip_security:
             try:
                 py_tree = python_ast.parse(code)
                 blocked = self._check_blocked_imports(py_tree)
@@ -609,7 +620,7 @@ class ASTParser:
                 raise
 
         # ── Security check (Java / C++ / JS — regex-based) ──
-        else:
+        elif not skip_security:
             self._check_security_non_python(code, lang)
 
         # ── Tree-sitter parse ──

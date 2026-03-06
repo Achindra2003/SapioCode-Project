@@ -1,16 +1,21 @@
-# Dependencies
+# ─── Dependencies ───
 node_modules/
 
-# Build outputs
+# ─── Build outputs ───
 .next/
 out/
 build/
+dist/
+tsconfig.tsbuildinfo
 
-# Environment files
+# ─── Environment files (secrets) ───
 .env
-.env*.local
+.env.local
+.env.*.local
+backend/**/.env
+frontend/.env.local
 
-# Python
+# ─── Python ───
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,18 +23,27 @@ __pycache__/
 venv/
 .venv/
 *.egg-info/
-dist/
-build/
+.pytest_cache/
+*.db
 
-# IDE
+# ─── IDE ───
 .idea/
 .vscode/
 *.swp
+*.swo
 
-# OS
+# ─── OS ───
 .DS_Store
 Thumbs.db
 
-# Logs
+# ─── Logs & artifacts ───
 *.log
 npm-debug.log*
+build_output*.txt
+build_audit*.txt
+test_run_output*.txt
+startup.log
+auth_server.log
+
+# ─── Deployment caches ───
+.vercel/

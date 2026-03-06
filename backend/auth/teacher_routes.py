@@ -50,7 +50,14 @@ def create_class(
     authorization: str | None = Header(None),
 ):
     teacher = _get_teacher(authorization)
-    cohort_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+    # Generate unique cohort code (retry on collision)
+    for _ in range(5):
+        cohort_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        if not classes_collection.find_one({"cohort_code": cohort_code}):
+            break
+    else:
+        raise HTTPException(status_code=500, detail="Could not generate unique class code")
 
     new_class = {
         "name": body.name,
@@ -334,10 +341,15 @@ def class_analytics(class_id: str, authorization: str | None = Header(None)):
     student_ids = cls.get("students", [])
     problem_ids = [pid for pid in cls.get("topics_assigned", []) if ObjectId.is_valid(pid)]
 
-    # Resolve problem titles for column headers
+    # Batch-fetch all problems in one query (avoids N+1)
+    problems_map = {}
+    if problem_ids:
+        for p in problems_collection.find({"_id": {"$in": [ObjectId(pid) for pid in problem_ids]}}):
+            problems_map[str(p["_id"])] = p
+
     columns = []
     for pid in problem_ids:
-        p = problems_collection.find_one({"_id": ObjectId(pid)})
+        p = problems_map.get(pid)
         columns.append({
             "problem_id": pid,
             "title": p["title"] if p else "Unknown",
@@ -439,6 +451,23 @@ def get_problem(problem_id: str):
     if not p:
         raise HTTPException(status_code=404, detail="Problem not found")
 
+    # Strip hidden test cases and viva answer keywords (student-facing endpoint)
+    test_cases = p.get("test_cases", [])
+    safe_test_cases = [
+        {
+            "input": tc.get("input", ""),
+            "expected_output": tc.get("expected_output", ""),
+            "explanation": tc.get("explanation", ""),
+        }
+        for tc in test_cases
+        if not tc.get("is_hidden", False)
+    ]
+
+    safe_viva = [
+        {"id": vq.get("id", ""), "question": vq.get("question", "")}
+        for vq in p.get("viva_questions", [])
+    ]
+
     return {
         "id": str(p["_id"]),
         "title": p["title"],
@@ -446,8 +475,8 @@ def get_problem(problem_id: str):
         "difficulty": p.get("difficulty", "beginner"),
         "topic": p.get("topic", ""),
         "target_concepts": p.get("target_concepts", []),
-        "test_cases": p.get("test_cases", []),
-        "viva_questions": p.get("viva_questions", []),
+        "test_cases": safe_test_cases,
+        "viva_questions": safe_viva,
         "starter_code": p.get("starter_code", ""),
         "status": p.get("status", "draft"),
     }

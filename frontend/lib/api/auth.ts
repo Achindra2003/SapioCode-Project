@@ -18,10 +18,15 @@ async function apiRequest<T>(
     headers,
   });
 
-  const data = await response.json();
+  let data: Record<string, unknown>;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(response.ok ? "Empty response" : `Server error (${response.status})`);
+  }
 
   if (!response.ok) {
-    throw new Error(data.detail || "Something went wrong");
+    throw new Error((data.detail as string) || "Something went wrong");
   }
 
   return data as T;

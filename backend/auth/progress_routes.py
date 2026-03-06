@@ -96,7 +96,7 @@ async def live_progress_stream(request: Request):
     """Server-Sent Events stream for real-time progress updates.
     Teachers open this and receive events whenever any student
     completes/submits a question."""
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
     _sse_subscribers.append(queue)
 
     async def event_generator():
@@ -195,8 +195,8 @@ def get_student_classes(user_id: str):
     for cls in student_classes:
         # Count assigned problems
         assigned = cls.get("topics_assigned", [])
-        # Try to get teacher name
-        teacher_id = cls.get("teacher_id", "")
+        # Try to get teacher name — field is "instructor_id" (set in teacher_routes)
+        teacher_id = cls.get("instructor_id", "")
         teacher_name = "Teacher"
         if teacher_id:
             teacher_doc = users_collection.find_one({"_id": teacher_id})
@@ -223,16 +223,22 @@ def get_student_classes(user_id: str):
 # ═══════════════════════════════════════════════════════════════
 
 @router.get("/student/{user_id}/skill-tree")
-def get_skill_tree(user_id: str):
+def get_skill_tree(user_id: str, class_id: str = None):
     """
     Returns a list of skill-tree nodes combining:
       - problems assigned to the student's class
       - the student's current progress on each problem
     Each node has: id, title, description, difficulty, topic, order,
     status (locked | in_progress | mastered), viva_score, attempts
+
+    Optional query param `class_id` filters to a specific class.
     """
     # Find all classes the student belongs to
-    student_classes = list(classes_collection.find({"students": user_id}))
+    if class_id:
+        # Filter to a specific class
+        student_classes = list(classes_collection.find({"_id": ObjectId(class_id), "students": user_id}))
+    else:
+        student_classes = list(classes_collection.find({"students": user_id}))
 
     # Collect all unique problem IDs assigned across classes
     all_problem_ids = []

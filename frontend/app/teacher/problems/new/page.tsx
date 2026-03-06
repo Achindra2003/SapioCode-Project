@@ -43,7 +43,7 @@ function NewProblemContent() {
   // Class selection
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [selectedClassId, setSelectedClassId] = useState(preselectedClassId);
-  const [, setLoadingClasses] = useState(true);
+  const [loadingClasses, setLoadingClasses] = useState(true);
 
   // Problem fields
   const [title, setTitle] = useState("");
@@ -404,9 +404,10 @@ function NewProblemContent() {
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#44f91f]/40 focus:outline-none"
+            disabled={loadingClasses}
+            className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#44f91f]/40 focus:outline-none disabled:opacity-50"
           >
-            <option value="">Select a classroom</option>
+            <option value="">{loadingClasses ? "Loading classrooms…" : "Select a classroom"}</option>
             {classrooms.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.cohort_code})

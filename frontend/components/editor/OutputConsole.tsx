@@ -18,7 +18,7 @@ export default function OutputConsole({
   testResults,
 }: OutputConsoleProps) {
   return (
-    <div className="h-full flex flex-col bg-[#0d1117] text-[#e6edf3] font-mono text-sm overflow-hidden">
+    <div className="h-full flex flex-col bg-[#0d130e] text-[#e6edf3] font-mono text-sm overflow-hidden">
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {status === "running" && (
           <div className="flex items-center gap-2 text-gray-400">
@@ -54,8 +54,13 @@ export default function OutputConsole({
                 <div className="text-xs text-gray-400 mb-1">
                   Input: {result.input}
                 </div>
+                {result.expectedOutput && (
+                  <div className="text-xs text-gray-400 mb-1">
+                    Expected: <span className="text-slate-300">{result.expectedOutput}</span>
+                  </div>
+                )}
                 <div className="text-xs text-gray-400">
-                  Output: {result.actualOutput || "(empty)"}
+                  {result.passed ? "Output" : "Actual"}: <span className={result.passed ? "text-[#44f91f]" : "text-red-300"}>{result.actualOutput || "(empty)"}</span>
                 </div>
                 {!result.passed && result.error && (
                   <div className="text-xs text-red-400 mt-1">{result.error}</div>

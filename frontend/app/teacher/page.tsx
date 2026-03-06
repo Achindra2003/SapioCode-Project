@@ -10,30 +10,34 @@ import {
   PlusCircle,
   Copy,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { teacherAPI, type Classroom } from "@/lib/api/teacher";
 
 export default function TeacherDashboard() {
   const router = useRouter();
-  const { user } = useAuth();
+  useAuth(); // ensure teacher is authenticated
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newClassName, setNewClassName] = useState("");
   const [creating, setCreating] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     loadClassrooms();
   }, []);
 
   const loadClassrooms = async () => {
+    setError(null);
     try {
       const data = await teacherAPI.listClassrooms();
       setClassrooms(data);
-    } catch {
-      // silently fail
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load classrooms");
     } finally {
       setLoading(false);
     }
@@ -42,13 +46,14 @@ export default function TeacherDashboard() {
   const handleCreate = async () => {
     if (!newClassName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await teacherAPI.createClassroom(newClassName.trim());
       setNewClassName("");
       setShowCreate(false);
       loadClassrooms();
-    } catch {
-      // handle error
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create classroom");
     } finally {
       setCreating(false);
     }
@@ -69,11 +74,11 @@ export default function TeacherDashboard() {
     <div className="p-8 max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">
-          Welcome, {user?.full_name}
+        <h1 className="text-2xl font-bold text-white mb-1">
+          Your Classes
         </h1>
-        <p className="text-slate-400">
-          Manage your classrooms, create problems, and track student progress.
+        <p className="text-sm text-slate-500">
+          Manage classrooms, assign problems, and monitor student progress.
         </p>
       </div>
 
@@ -116,6 +121,11 @@ export default function TeacherDashboard() {
           <h3 className="text-sm font-semibold text-[#44f91f]/60 uppercase tracking-wider mb-4">
             New Classroom
           </h3>
+          {createError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
+              {createError}
+            </div>
+          )}
           <div className="flex gap-3">
             <input
               type="text"
@@ -158,8 +168,19 @@ export default function TeacherDashboard() {
         </h2>
 
         {loading ? (
-          <div className="text-center py-12 text-slate-500">
-            Loading classrooms...
+          <div className="flex items-center justify-center py-12">
+            <div className="w-6 h-6 border-2 border-[#44f91f]/30 border-t-[#44f91f] rounded-full animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="glass-morphism rounded-2xl p-8 text-center">
+            <AlertTriangle className="w-10 h-10 text-red-400/60 mx-auto mb-3" />
+            <p className="text-red-400 text-sm mb-3">{error}</p>
+            <button
+              onClick={loadClassrooms}
+              className="text-sm text-[#44f91f] hover:underline"
+            >
+              Retry
+            </button>
           </div>
         ) : classrooms.length === 0 ? (
           <div className="glass-morphism rounded-2xl p-12 text-center">

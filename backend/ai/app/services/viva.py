@@ -75,6 +75,7 @@ class AnswerEvaluation:
     missing_concepts: List[str]
     feedback: str
     is_acceptable: bool
+    answer_text: str = ""
     red_flags: List[str] = field(default_factory=list)
 
 
@@ -451,7 +452,26 @@ _parser = ASTParser()
 
 def start_session(student_id: str, code: str, language: str = "python", num_questions: int = 3) -> VivaSession:
     """Create a new Viva session with auto-generated questions."""
-    analysis = _parser.analyze(code, language)
+    from .ast_parser import SecurityException
+    try:
+        analysis = _parser.analyze(code, language)
+    except SecurityException:
+        # Student code has blocked imports (os, sys, etc.) — that's fine for
+        # viva purposes.  Build a minimal analysis so we can still generate
+        # comprehension questions about the rest of the code.
+        analysis = _parser.analyze_safe(code, language) if hasattr(_parser, "analyze_safe") else None
+    if analysis is None:
+        # Fallback: build a bare-bones ASTAnalysisResult so question
+        # generation has *something* to work with.
+        from .ast_parser import ASTAnalysisResult, AlgorithmPattern
+        analysis = ASTAnalysisResult(
+            is_valid=True,
+            language=language,
+            function_count=0,
+            loop_count=0,
+            variable_count=0,
+            algorithm_pattern=AlgorithmPattern.UNKNOWN,
+        )
     questions = generate_questions(code, analysis, num_questions)
     sid = f"viva-{uuid.uuid4().hex[:12]}"
     session = VivaSession(
@@ -476,6 +496,7 @@ async def submit_answer(session_id: str, answer_text: str) -> AnswerEvaluation:
 
     question = session.questions[session.current_index]
     evaluation = await verify_answer(question, answer_text, session.code, session.analysis)
+    evaluation.answer_text = answer_text
     session.evaluations.append(evaluation)
     session.current_index += 1
     return evaluation
@@ -509,9 +530,9 @@ def get_verdict(session_id: str) -> Dict[str, Any]:
 
     session.verdict = verdict
 
-    # Aggregate all answer text for concept overlap
+    # Aggregate student's actual answers for concept overlap
     all_answers = " ".join(
-        session.evaluations[i].feedback for i in range(len(session.evaluations))
+        session.evaluations[i].answer_text for i in range(len(session.evaluations))
     )
 
     return {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Eye, EyeOff, Mail, Lock, User, GraduationCap, BookOpen } from "lucide-react";
 import { authApi } from "@/lib/api/auth";
 import { authStorage } from "@/hooks/useAuth";
@@ -181,9 +182,9 @@ export default function RegisterForm() {
 
       <p className="text-center text-sm text-slate-400">
         Already have an account?{" "}
-        <a href="/login" className="text-[#44f91f] hover:text-[#44f91f]/80 font-medium">
+        <Link href="/login" className="text-[#44f91f] hover:text-[#44f91f]/80 font-medium">
           Sign in
-        </a>
+        </Link>
       </p>
     </form>
   );

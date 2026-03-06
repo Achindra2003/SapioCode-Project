@@ -17,14 +17,21 @@ def create_session(data: SessionCreateRequest):
     
     thread_id = f"thread_{data.user_id}_{uuid.uuid4().hex[:8]}"
     
-    sessions_collection.insert_one({
-        "user_id": data.user_id,
-        "thread_id": thread_id,
-        "conversation_history": [],
-        "current_question_id": None,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    })
+    try:
+        sessions_collection.insert_one({
+            "user_id": data.user_id,
+            "thread_id": thread_id,
+            "conversation_history": [],
+            "current_question_id": None,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        })
+    except Exception:
+        # Race condition: another request already created it
+        existing = sessions_collection.find_one({"user_id": data.user_id})
+        if existing:
+            return {"thread_id": existing["thread_id"]}
+        raise
     
     return {"thread_id": thread_id}
 
@@ -35,14 +42,20 @@ def get_session(user_id: str):
     
     if not session:
         thread_id = f"thread_{user_id}_{uuid.uuid4().hex[:8]}"
-        sessions_collection.insert_one({
-            "user_id": user_id,
-            "thread_id": thread_id,
-            "conversation_history": [],
-            "current_question_id": None,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-        })
+        try:
+            sessions_collection.insert_one({
+                "user_id": user_id,
+                "thread_id": thread_id,
+                "conversation_history": [],
+                "current_question_id": None,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            })
+        except Exception:
+            session = sessions_collection.find_one({"user_id": user_id})
+            if session:
+                return {"thread_id": session["thread_id"], "conversation_history": session.get("conversation_history", [])}
+            raise
         return {"thread_id": thread_id, "conversation_history": []}
     
     return {

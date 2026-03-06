@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 from bson import ObjectId
-import traceback
+import logging
 
 from mongo import users_collection
 from auth_utils import hash_password, verify_password, create_access_token
 from schemas import RegisterRequest, LoginRequest
+
+logger = logging.getLogger("sapiocode.auth")
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -13,16 +15,11 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/register")
 def register(data: RegisterRequest):
     try:
-        print(f"Register request: {data.email}")
         existing = users_collection.find_one({"email": data.email})
-        print(f"Existing user check done: {existing}")
-        
         if existing:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         hashed = hash_password(data.password)
-        print("Password hashed")
-
         role = data.role if data.role in ("student", "teacher") else "student"
 
         user_doc = {
@@ -38,7 +35,7 @@ def register(data: RegisterRequest):
 
         result = users_collection.insert_one(user_doc)
         user_id = str(result.inserted_id)
-        print(f"User created: {user_id}")
+        logger.info("User registered: role=%s", role)
 
         access_token = create_access_token({
             "sub": user_id,
@@ -58,9 +55,8 @@ def register(data: RegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"ERROR in register: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Register failed")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
 
 @router.post("/login")
@@ -94,6 +90,5 @@ def login(data: LoginRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"ERROR in login: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Login failed")
+        raise HTTPException(status_code=500, detail="Login failed. Please try again.")

@@ -3,14 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
   LogOut,
   User,
   BookOpen,
   BarChart3,
-  Flame,
   GraduationCap,
-  Map,
   UserPlus,
   Check,
   Loader2,
@@ -38,10 +35,12 @@ export default function DashboardPage() {
   // Student enrolled classes
   const [studentClasses, setStudentClasses] = useState<StudentClass[]>([]);
   const [loadingStudentClasses, setLoadingStudentClasses] = useState(false);
+  const [studentClassesError, setStudentClassesError] = useState<string | null>(null);
 
   // Teacher class state
   const [teacherClasses, setTeacherClasses] = useState<Classroom[]>([]);
   const [loadingClasses, setLoadingClasses] = useState(false);
+  const [teacherClassesError, setTeacherClassesError] = useState<string | null>(null);
   const [newClassName, setNewClassName] = useState("");
   const [creatingClass, setCreatingClass] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -60,9 +59,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user || user.role !== "teacher") return;
     setLoadingClasses(true);
+    setTeacherClassesError(null);
     teacherAPI.listClassrooms()
       .then(setTeacherClasses)
-      .catch(() => {})
+      .catch((err) => setTeacherClassesError(err instanceof Error ? err.message : "Failed to load classes"))
       .finally(() => setLoadingClasses(false));
   }, [user]);
 
@@ -70,9 +70,10 @@ export default function DashboardPage() {
   const fetchStudentClasses = () => {
     if (!user || user.role === "teacher") return;
     setLoadingStudentClasses(true);
+    setStudentClassesError(null);
     studentApi.getMyClasses(user.id)
       .then((data) => setStudentClasses(data.classes))
-      .catch(() => {})
+      .catch((err) => setStudentClassesError(err instanceof Error ? err.message : "Failed to load classes"))
       .finally(() => setLoadingStudentClasses(false));
   };
 
@@ -103,10 +104,47 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCreateClass = async () => {
+    if (!newClassName.trim()) return;
+    setCreatingClass(true);
+    try {
+      await teacherAPI.createClassroom(newClassName.trim());
+      setNewClassName("");
+      const updated = await teacherAPI.listClassrooms();
+      setTeacherClasses(updated);
+    } catch (err) {
+      setTeacherClassesError(err instanceof Error ? err.message : "Failed to create class");
+    } finally {
+      setCreatingClass(false);
+    }
+  };
+
   if (!isMounted || !isAuthenticated || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0d130e]">
-        <div className="animate-pulse text-[#44f91f]/60">Loading...</div>
+      <div className="min-h-screen bg-[#0d130e] p-6">
+        {/* Skeleton header */}
+        <div className="flex items-center gap-4 mb-8 animate-pulse">
+          <div className="w-10 h-10 rounded-full bg-white/5" />
+          <div className="space-y-2">
+            <div className="h-5 w-40 rounded bg-white/5" />
+            <div className="h-3 w-24 rounded bg-white/5" />
+          </div>
+        </div>
+        {/* Skeleton stat cards */}
+        <div className="grid grid-cols-3 gap-4 mb-8 animate-pulse">
+          {[1,2,3].map(i => (
+            <div key={i} className="glass-panel rounded-2xl p-5 h-24" />
+          ))}
+        </div>
+        {/* Skeleton content area */}
+        <div className="space-y-3 animate-pulse">
+          <div className="h-4 w-32 rounded bg-white/5" />
+          <div className="grid grid-cols-3 gap-4">
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="glass-panel rounded-2xl h-28" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -116,12 +154,11 @@ export default function DashboardPage() {
   const unlockedCount = topicStatuses.filter((t) => t.status !== "locked").length;
   const masteredQuestions = progress.filter((p) => p.status === "mastered").length;
   const totalQuestions = topicStatuses.reduce((acc, t) => acc + t.total_count, 0);
-  const overallPct = totalQuestions > 0 ? Math.round((masteredQuestions / totalQuestions) * 100) : 0;
 
   const stats = [
-    { label: "Topics Unlocked", value: `${unlockedCount}/${topicStatuses.length}`, icon: BookOpen },
-    { label: "Problems Solved", value: `${masteredQuestions}/${totalQuestions}`, icon: BarChart3 },
-    { label: "Overall Mastery", value: `${overallPct}%`, icon: Flame },
+    { label: "Classes Enrolled", value: `${studentClasses.length}`, icon: GraduationCap },
+    { label: "Practice Completed", value: `${masteredQuestions}/${totalQuestions}`, icon: BarChart3 },
+    { label: "Topics Explored", value: `${unlockedCount}/${topicStatuses.length}`, icon: BookOpen },
   ];
 
   return (
@@ -132,7 +169,7 @@ export default function DashboardPage() {
       <header className="glass-panel border-x-0 border-t-0 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <LayoutDashboard className="w-6 h-6 text-[#44f91f]" />
+            <GraduationCap className="w-6 h-6 text-[#44f91f]" />
             <span className="text-xl font-bold text-white">
               sapio<span className="text-[#44f91f] neon-text">code</span>
             </span>
@@ -172,19 +209,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {!isTeacher && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {stats.map((stat) => (
-              <div key={stat.label} className="p-4 bg-black/30 border border-white/5 rounded-xl">
-                <div className="flex items-center gap-3 mb-2">
-                  <stat.icon className="w-5 h-5 text-[#44f91f]/60" />
-                  <span className="text-sm text-slate-400">{stat.label}</span>
-                </div>
-                <p className="text-2xl font-bold text-white">{stat.value}</p>
-              </div>
-            ))}
-          </div>
-          )}
         </div>
 
         {/* ──────────── Student Section ──────────── */}
@@ -239,28 +263,34 @@ export default function DashboardPage() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Primary: Skill Tree */}
+              {/* Practice Library */}
               <button
-                onClick={() => router.push("/progress/skill-tree")}
+                onClick={() => router.push("/progress")}
                 className="p-8 bg-[#44f91f] hover:brightness-110 rounded-2xl text-left transition-all group shadow-[0_0_30px_rgba(68,249,31,0.2)] hover:shadow-[0_0_40px_rgba(68,249,31,0.3)]"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Map className="w-6 h-6 text-black/70" />
-                  <h2 className="text-xl font-bold text-black">Start Learning</h2>
+                  <BookOpen className="w-6 h-6 text-black/70" />
+                  <h2 className="text-xl font-bold text-black">Practice Library</h2>
                 </div>
-                <p className="text-black/70 mb-4">Open your assigned skill tree and start solving problems</p>
-                <span className="text-black/60 group-hover:text-black font-medium">Open Skill Tree →</span>
+                <p className="text-black/70 mb-4">Practice coding fundamentals with built-in exercises</p>
+                <span className="text-black/60 group-hover:text-black font-medium">Open Practice →</span>
               </button>
 
-              {/* Secondary: Practice Library */}
-              <button
-                onClick={() => router.push("/progress")}
-                className="p-8 glass-panel hover:bg-white/5 rounded-2xl text-left transition-all group"
-              >
-                <h2 className="text-xl font-bold text-white mb-2">Practice Mode</h2>
-                <p className="text-slate-400 mb-4">Browse the built-in problem library and practice freely</p>
-                <span className="text-[#44f91f] font-medium">Open Library →</span>
-              </button>
+              {/* Quick stats */}
+              <div className="p-8 glass-panel rounded-2xl">
+                <h2 className="text-lg font-bold text-white mb-4">Quick Stats</h2>
+                <div className="space-y-3">
+                  {stats.map((stat) => (
+                    <div key={stat.label} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <stat.icon className="w-4 h-4 text-[#44f91f]/60" />
+                        <span className="text-sm text-slate-400">{stat.label}</span>
+                      </div>
+                      <span className="text-sm font-bold text-white">{stat.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Enrolled Classes */}
@@ -271,6 +301,11 @@ export default function DashboardPage() {
               {loadingStudentClasses ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="w-6 h-6 border-2 border-[#44f91f]/30 border-t-[#44f91f] rounded-full animate-spin" />
+                </div>
+              ) : studentClassesError ? (
+                <div className="glass-panel rounded-2xl p-6 text-center">
+                  <p className="text-red-400 text-sm mb-2">{studentClassesError}</p>
+                  <button onClick={fetchStudentClasses} className="text-xs text-[#44f91f] hover:underline">Retry</button>
                 </div>
               ) : studentClasses.length === 0 ? (
                 <div className="glass-panel rounded-2xl p-8 text-center">
@@ -287,8 +322,8 @@ export default function DashboardPage() {
                       key={cls.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => router.push("/progress/skill-tree")}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push("/progress/skill-tree"); }}
+                      onClick={() => router.push(`/progress/skill-tree?classId=${cls.id}&className=${encodeURIComponent(cls.name)}`)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/progress/skill-tree?classId=${cls.id}&className=${encodeURIComponent(cls.name)}`); }}
                       className="glass-panel rounded-xl p-5 text-left hover:bg-white/5 transition-all group cursor-pointer"
                     >
                       <h3 className="font-semibold text-white group-hover:text-[#44f91f] transition-colors mb-1">
@@ -354,32 +389,11 @@ export default function DashboardPage() {
                     placeholder="New class name"
                     className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:border-[#44f91f]/40 focus:outline-none"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && newClassName.trim()) {
-                        setCreatingClass(true);
-                        teacherAPI.createClassroom(newClassName.trim())
-                          .then(() => {
-                            setNewClassName("");
-                            return teacherAPI.listClassrooms();
-                          })
-                          .then(setTeacherClasses)
-                          .catch(() => {})
-                          .finally(() => setCreatingClass(false));
-                      }
+                      if (e.key === "Enter" && newClassName.trim()) handleCreateClass();
                     }}
                   />
                   <button
-                    onClick={() => {
-                      if (!newClassName.trim()) return;
-                      setCreatingClass(true);
-                      teacherAPI.createClassroom(newClassName.trim())
-                        .then(() => {
-                          setNewClassName("");
-                          return teacherAPI.listClassrooms();
-                        })
-                        .then(setTeacherClasses)
-                        .catch(() => {})
-                        .finally(() => setCreatingClass(false));
-                    }}
+                    onClick={handleCreateClass}
                     disabled={creatingClass || !newClassName.trim()}
                     className="p-2 bg-[#44f91f] text-black rounded-lg hover:brightness-110 transition-all disabled:opacity-50"
                   >
@@ -391,6 +405,18 @@ export default function DashboardPage() {
               {loadingClasses ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="w-6 h-6 border-2 border-[#44f91f]/30 border-t-[#44f91f] rounded-full animate-spin" />
+                </div>
+              ) : teacherClassesError ? (
+                <div className="glass-panel rounded-2xl p-6 text-center">
+                  <p className="text-red-400 text-sm mb-2">{teacherClassesError}</p>
+                  <button onClick={() => {
+                    setLoadingClasses(true);
+                    setTeacherClassesError(null);
+                    teacherAPI.listClassrooms()
+                      .then(setTeacherClasses)
+                      .catch((err) => setTeacherClassesError(err instanceof Error ? err.message : "Failed to load classes"))
+                      .finally(() => setLoadingClasses(false));
+                  }} className="text-xs text-[#44f91f] hover:underline">Retry</button>
                 </div>
               ) : teacherClasses.length === 0 ? (
                 <div className="glass-panel rounded-2xl p-8 text-center">

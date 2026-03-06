@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
-import traceback
 
 from auth_routes import router as auth_router
 from progress_routes import router as progress_router
@@ -33,11 +32,10 @@ class CORSErrorMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception as e:
-            print(f"ERROR: {e}")
-            traceback.print_exc()
+            logger.exception("Unhandled middleware error")
             response = JSONResponse(
                 status_code=500,
-                content={"detail": str(e), "type": type(e).__name__}
+                content={"detail": "Internal server error"}
             )
         
         response.headers["Access-Control-Allow-Origin"] = "*"
@@ -70,8 +68,7 @@ def health():
 # ── Global exception handler ────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
-    traceback.print_exc()
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error", "type": type(exc).__name__},

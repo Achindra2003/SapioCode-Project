@@ -137,6 +137,7 @@ export interface CompileResponse {
 
 export interface TestResult {
   input: string;
+  expectedOutput?: string;
   actualOutput: string;
   passed: boolean;
   description: string;

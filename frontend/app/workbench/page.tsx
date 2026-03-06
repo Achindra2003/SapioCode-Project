@@ -21,7 +21,7 @@ import VivaModal from "@/components/editor/VivaModal";
 
 const MonacoEditor = dynamic(() => import("@/components/editor/MonacoEditor"), {
   ssr: false,
-  loading: () => <div className="h-full w-full bg-[#0d1117] animate-pulse" />,
+  loading: () => <div className="h-full w-full bg-[#0d130e] animate-pulse" />,
 });
 
 function WorkbenchContent() {
@@ -33,6 +33,7 @@ function WorkbenchContent() {
 
   const questionId = searchParams.get("questionId");
   const problemId = searchParams.get("problem");
+  const classId = searchParams.get("classId");
 
   // For hardcoded questions (legacy route)
   const hardcodedQuestion = questionId ? getQuestionById(questionId) : null;
@@ -68,7 +69,7 @@ function WorkbenchContent() {
           };
           setMongoProblem(mapped);
         })
-        .catch((err) => console.error("Failed to load problem:", err))
+        .catch(() => { /* Problem load failed — loadingProblem will clear */ })
         .finally(() => setLoadingProblem(false));
     }
   }, [problemId]);
@@ -270,6 +271,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
 
         results.push({
           input: testCase.input,
+          expectedOutput: expectedOutput,
           actualOutput,
           passed,
           description: testCase.description,
@@ -285,6 +287,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const results: TestResult[] = question.testCases.map((tc) => ({
         input: tc.input,
+        expectedOutput: tc.expectedOutput,
         actualOutput: "",
         passed: false,
         description: tc.description,
@@ -338,8 +341,8 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
 
         // Refresh progress data from DB to update unlock state
         await fetchProgress();
-      } catch (err) {
-        console.error("Failed to save progress:", err);
+      } catch {
+        // Progress save failed — non-blocking, student can continue
       }
     }
 
@@ -362,7 +365,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
           setTestResults([]);
           setStatus("idle");
           setVivaResult(null);
-          router.push(mongoProblem ? "/progress/skill-tree" : "/progress");
+          router.push(backTarget);
         } else {
           // On weak/fail, dismiss overlay — student stays to retry
           setVivaResult(null);
@@ -373,21 +376,26 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
 
   if (!isAuthenticated || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0d1117]">
-        <div className="animate-pulse text-gray-400">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0d130e]">
+        <div className="animate-pulse text-[#44f91f]/60">Loading...</div>
       </div>
     );
   }
+
+  // Determine back navigation target
+  const backTarget = mongoProblem
+    ? `/progress/skill-tree${classId ? `?classId=${classId}` : ""}`
+    : "/dashboard";
 
   const topic = question && !mongoProblem ? TOPICS.find((t) => t.id === question.topicId) : null;
   const editorContext = getEditorContext();
 
   return (
-    <main className="h-screen w-screen bg-[#0d1117] text-[#e6edf3] flex flex-col overflow-hidden">
-      <nav className="h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#0d1117]/80 backdrop-blur-md z-30 shrink-0">
+    <main className="h-screen w-screen bg-[#0d130e] text-[#e6edf3] flex flex-col overflow-hidden">
+      <nav className="h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#0d130e]/80 backdrop-blur-md z-30 shrink-0">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => router.push(mongoProblem ? "/progress/skill-tree" : "/progress")}
+            onClick={() => router.push(backTarget)}
             className="p-2 hover:bg-white/5 rounded-md transition-colors"
           >
             <ArrowLeft className="w-5 h-5 opacity-40" />
@@ -406,7 +414,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
               logout();
               router.push("/login");
             }}
-            className="px-5 h-10 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+            className="px-4 h-9 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-medium text-slate-400 hover:text-red-400 transition-all"
           >
             Sign out
           </button>
@@ -414,8 +422,8 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
       </nav>
 
       <div className="flex-1 flex overflow-hidden z-10">
-        <aside className="w-1/2 flex flex-col border-r border-white/5 bg-[#0d1117]">
-          <div className="h-10 flex items-center px-4 border-b border-white/5 shrink-0 bg-[#161b22]">
+        <aside className="w-1/2 flex flex-col border-r border-white/5 bg-[#0d130e]">
+          <div className="h-10 flex items-center px-4 border-b border-white/5 shrink-0 bg-[#152016]">
             <button className="h-full flex items-center gap-2 border-b-2 border-white px-2 text-xs font-bold tracking-tight">
               Question
             </button>
@@ -464,6 +472,10 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
                           <span className="text-[#44f91f]">Input:</span>
                           <span className="text-white/60">{tc.input}</span>
                         </div>
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-blue-400">Expected:</span>
+                          <span className="text-white/60">{tc.expectedOutput}</span>
+                        </div>
                         <div className="text-xs text-white/30 mt-2">{tc.description}</div>
                       </div>
                     ))}
@@ -481,10 +493,10 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
                   Problem Library
                 </span>
                 {QUESTIONS.map((q) => (
-                  <a
+                  <button
                     key={q.id}
-                    href={`?questionId=${q.id}`}
-                    className="group flex items-center justify-between p-4 rounded-lg bg-white/[0.01] border border-white/5 hover:bg-white/[0.04] transition-all"
+                    onClick={() => router.push(`/workbench?questionId=${q.id}`)}
+                    className="group flex items-center justify-between p-4 rounded-lg bg-white/[0.01] border border-white/5 hover:bg-white/[0.04] transition-all w-full text-left"
                   >
                     <div className="flex flex-col gap-1">
                       <span className="text-base font-bold text-white group-hover:text-[#44f91f] transition-colors">
@@ -502,15 +514,15 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
                         {q.difficulty}
                       </span>
                     </div>
-                  </a>
+                  </button>
                 ))}
               </div>
             )}
           </div>
         </aside>
 
-        <div className="w-1/2 flex flex-col bg-[#0d1117] relative">
-          <div className="h-10 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-[#161b22]">
+        <div className="w-1/2 flex flex-col bg-[#0d130e] relative">
+          <div className="h-10 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-[#152016]">
             <div className="flex items-center gap-4">
               <LanguageSelector value={language} onChange={(lang) => { setLanguage(lang); setCode(question?.starterCode[lang] || LANGUAGES[lang].starter); }} disabled={status === "running"} />
             </div>
@@ -528,7 +540,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 bg-[#0d1117]">
+          <div className="flex-1 min-h-0 bg-[#0d130e]">
             <MonacoEditor
               language={LANGUAGES[language].monaco}
               value={code}
@@ -539,7 +551,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
           </div>
 
           <div className={`transition-all duration-300 flex flex-col shrink-0 z-20 ${isConsoleOpen ? "h-64" : "h-12"}`}>
-            <div className="h-12 border-t border-white/5 bg-[#161b22] px-6 flex items-center justify-between shrink-0">
+            <div className="h-12 border-t border-white/5 bg-[#152016] px-6 flex items-center justify-between shrink-0">
               <button
                 onClick={() => setIsConsoleOpen(!isConsoleOpen)}
                 className="flex items-center gap-2 text-xs font-bold text-white/60 hover:text-white transition-colors uppercase tracking-widest"
@@ -570,12 +582,12 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
                   className="min-w-[120px] h-10 bg-[#44f91f] hover:brightness-110 rounded-xl text-sm font-black text-black transition-all uppercase tracking-widest disabled:opacity-40 active:scale-95 shadow-[0_0_20px_rgba(68,249,31,0.3)] hover:shadow-[0_0_30px_rgba(68,249,31,0.4)] flex items-center justify-center gap-2"
                 >
                   <Send className="w-4 h-4" />
-                  {vivaCountdown !== null ? `Viva in ${vivaCountdown}...` : "Submit"}
+                  {vivaCountdown !== null ? `Defense in ${vivaCountdown}...` : "Submit"}
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 bg-[#0d1117] overflow-y-auto">
+            <div className="flex-1 bg-[#0d130e] overflow-y-auto">
               <OutputConsole
                 output={output}
                 error={error}
@@ -688,7 +700,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
                     setCode(question?.starterCode[language] || LANGUAGES[language].starter);
                     setOutput(""); setError(null); setTestResults([]); setStatus("idle");
                     setVivaResult(null);
-                    router.push(mongoProblem ? "/progress/skill-tree" : "/progress");
+                    router.push(backTarget);
                   }}
                   className="flex items-center gap-2 px-6 py-3 bg-[#44f91f] text-black font-bold rounded-xl hover:brightness-110 transition-all shadow-[0_0_20px_rgba(68,249,31,0.3)]"
                 >
@@ -721,7 +733,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
 
 export default function WorkbenchPage() {
   return (
-    <Suspense fallback={<div className="h-screen w-screen bg-[#0d1117]" />}>
+    <Suspense fallback={<div className="h-screen w-screen bg-[#0d130e]" />}>
       <WorkbenchContent />
     </Suspense>
   );

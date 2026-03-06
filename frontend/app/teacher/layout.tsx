@@ -3,20 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  GraduationCap,
-  PlusCircle,
-  BarChart3,
   LogOut,
-  ChevronRight,
+  GraduationCap,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/teacher", icon: LayoutDashboard },
-  { label: "Classrooms", href: "/teacher/classrooms", icon: GraduationCap },
-  { label: "Create Problem", href: "/teacher/problems/new", icon: PlusCircle },
-  { label: "Analytics", href: "/teacher/analytics", icon: BarChart3 },
+const TABS = [
+  { label: "Classes", href: "/teacher" },
+  { label: "Dashboard", href: "/teacher/analytics" },
+  { label: "Create Problem", href: "/teacher/problems/new" },
 ];
 
 export default function TeacherLayout({
@@ -54,69 +49,69 @@ export default function TeacherLayout({
     );
   }
 
+  const isTabActive = (href: string) => {
+    if (href === "/teacher") {
+      return pathname === "/teacher" || pathname.startsWith("/teacher/classrooms");
+    }
+    return pathname.startsWith(href);
+  };
+
   return (
-    <div className="min-h-screen bg-[#0d130e] flex">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-white/5 bg-black/20 backdrop-blur-md flex flex-col">
-        <div className="p-6 border-b border-white/5">
-          <span className="text-xl font-bold text-white">
-            sapio<span className="text-[#44f91f] neon-text">code</span>
-          </span>
-          <p className="text-xs text-slate-500 mt-1">Teacher Portal</p>
-        </div>
-
-        <nav className="flex-1 p-4 space-y-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/teacher" && pathname.startsWith(item.href));
-            return (
-              <button
-                key={item.href}
-                onClick={() => router.push(item.href)}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
-                  ${
-                    isActive
-                      ? "bg-[#44f91f]/10 text-[#44f91f] border border-[#44f91f]/20"
-                      : "text-slate-400 hover:text-white hover:bg-white/5"
-                  }
-                `}
-              >
-                <item.icon className="w-4 h-4" />
-                {item.label}
-                {isActive && (
-                  <ChevronRight className="w-3 h-3 ml-auto" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 border-t border-white/5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 bg-[#44f91f]/10 rounded-full flex items-center justify-center">
-              <GraduationCap className="w-4 h-4 text-[#44f91f]" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white truncate">
-                {user.full_name}
-              </p>
-              <p className="text-xs text-slate-500 truncate">{user.email}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-2 text-sm text-slate-500 hover:text-red-400 transition-colors px-3 py-2"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign out
+    <div className="min-h-screen bg-[#0d130e] flex flex-col">
+      {/* Top Header */}
+      <header className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+          {/* Logo */}
+          <button onClick={() => router.push("/teacher")} className="flex items-center gap-2">
+            <span className="text-lg font-bold text-white">
+              Sapio<span className="text-[#44f91f]">Code</span>
+            </span>
           </button>
+
+          {/* Tabs */}
+          <nav className="flex items-center gap-1 bg-white/5 rounded-xl p-1">
+            {TABS.map((tab) => {
+              const active = isTabActive(tab.href);
+              return (
+                <button
+                  key={tab.href}
+                  onClick={() => router.push(tab.href)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    active
+                      ? "bg-[#44f91f] text-black shadow-[0_0_12px_rgba(68,249,31,0.3)]"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Profile */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-[#44f91f]/10 rounded-full flex items-center justify-center">
+                <GraduationCap className="w-4 h-4 text-[#44f91f]" />
+              </div>
+              <div className="hidden sm:block">
+                <p className="text-sm font-medium text-white leading-tight">{user.full_name}</p>
+                <p className="text-[10px] text-slate-500">{user.email}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-2 text-slate-500 hover:text-red-400 transition-colors rounded-lg hover:bg-white/5"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-      </aside>
+      </header>
 
       {/* Main content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto relative">
         <div className="absolute top-20 right-1/4 w-[600px] h-[300px] bg-[#44f91f]/3 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10">{children}</div>
       </div>

@@ -77,18 +77,16 @@ You are SapioBot, a Socratic tutor inside SapioCode — an intelligent adversari
 """
 
 _CODE_MARKERS = re.compile(
-    r"```"                       # fenced code blocks
-    r"|`[^`]{3,}`"               # inline code (3+ chars to avoid apostrophes)
-    r"|\b(def|class|import|from)\s+\w"  # python keywords with identifiers
-    r"|\breturn\s+\S"            # return statements
-    r"|\bfor\s+\w+\s+in\s"      # for loops
-    r"|\bwhile\s*\("             # while loops
-    r"|\bif\s*\(.*\)\s*[:{]"     # if statements
-    r"|=[^=].*[;{]"              # assignment with semicolons/braces
-    r"|\bprint\s*\("             # print calls
-    r"|\bconsole\.\w+\("         # JS console calls
-    r"|\b(int|str|float|bool|list|dict)\s*\(",  # type constructors
-    re.IGNORECASE,
+    r"```"                       # fenced code blocks (triple backticks)
+    r"|\b(def|class)\s+\w+\s*[\(:]"  # actual function/class definitions
+    r"|\bimport\s+\w+\s*$"      # standalone import statements (multi-line match needed)
+    r"|\bfrom\s+\w+\s+import\s"  # from...import statements
+    r"|=[^=].*[;]"              # assignment with semicolons (Java/JS code)
+    r"|\bconsole\.\w+\("        # JS console calls
+    r"|\bSystem\.out\."         # Java print calls
+    r"|\b(int|str|float|bool|list|dict)\s+\w+\s*="  # typed variable declarations
+    ,
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # ─── Affect routing thresholds ─────────────────────────────────────────────────
@@ -496,8 +494,19 @@ async def node_ast_sync(state: OrchestratorState) -> Dict[str, Any]:
     try:
         ast_result = _parser.analyze(code, language=state.get("language", "python"))
         ctx = _parser.build_llm_context(ast_result)
-    except SecurityException:
-        raise  # bubble up to FastAPI handler
+    except SecurityException as sec_exc:
+        # In chat/hint mode, don't block — just note the blocked imports
+        # so SapioBot can educate, not reject.
+        logger.info("Security imports detected in chat mode: %s", sec_exc.violations)
+        ctx = {
+            "algorithm_pattern": "unknown",
+            "approach_summary": "parse skipped – restricted imports",
+            "functions": [],
+            "concepts": [],
+            "issues": [f"Blocked imports detected: {', '.join(sec_exc.violations)}"],
+            "security_warning": f"Student code uses restricted imports: {', '.join(sec_exc.violations)}",
+        }
+        return {"ast_context": ctx, "teaching_focus": "security", "ast_result": None}
     except Exception as e:
         logger.warning("AST parse failed: %s", e)
         ctx = {
@@ -556,21 +565,24 @@ async def tool_hint(state: OrchestratorState) -> Dict[str, Any]:
 
     escalation = _pick_escalation_level(hint_count)
     response = ""
-    for attempt in range(3):
-        raw = await _llm_call(system, user_msg)
-        if _critic_check(raw):
-            response = raw
-            break
-        logger.warning("Hint critic failed attempt %d — retrying", attempt + 1)
-        # Targeted rewrite instruction instead of generic append
-        system += (
-            "\n\n[CRITICAL REWRITE INSTRUCTION: Your previous response contained code "
-            "fragments (detected: backticks, keywords, or code syntax). You MUST rewrite "
-            "your response using ONLY natural language. Describe concepts in plain English. "
-            "Instead of showing code, say 'the condition in your loop' or 'the value you return'. "
-            "Ask a question instead of showing a fix.]"
+    try:
+        for attempt in range(2):
+            raw = await _llm_call(system, user_msg)
+            if _critic_check(raw):
+                response = raw
+                break
+            logger.warning("Hint critic failed attempt %d — retrying", attempt + 1)
+            system += (
+                "\n\n[REWRITE: Remove any code blocks (``` markers) or code definitions. "
+                "Use plain English only. Ask a question instead of showing a fix.]"
+            )
+            response = raw  # use last attempt even if imperfect
+    except RuntimeError as e:
+        logger.error("LLM call failed in hint tool: %s", e)
+        response = (
+            "I'm having trouble connecting to the AI service right now. "
+            "Try refreshing and sending your message again in a few seconds."
         )
-        response = raw  # use last attempt even if imperfect
 
     new_message = [
         {"role": "user",      "content": user_msg},
@@ -618,18 +630,24 @@ async def tool_chat(state: OrchestratorState) -> Dict[str, Any]:
     )
 
     response = ""
-    for attempt in range(3):
-        raw = await _llm_call(system, user_msg)
-        if _critic_check(raw):
+    try:
+        for attempt in range(2):
+            raw = await _llm_call(system, user_msg)
+            if _critic_check(raw):
+                response = raw
+                break
+            logger.warning("Chat critic failed attempt %d — retrying", attempt + 1)
+            system += (
+                "\n\n[REWRITE: Remove any code blocks (``` markers) or code definitions. "
+                "Use plain English only. Ask a guiding question instead of showing code.]"
+            )
             response = raw
-            break
-        logger.warning("Chat critic failed attempt %d — retrying", attempt + 1)
-        system += (
-            "\n\n[CRITICAL REWRITE INSTRUCTION: Your previous response contained code "
-            "fragments. Rewrite using ONLY natural language. Describe concepts in words, "
-            "not syntax. Ask a guiding question instead of showing a solution.]"
+    except RuntimeError as e:
+        logger.error("LLM call failed in chat tool: %s", e)
+        response = (
+            "I'm having trouble connecting to the AI service right now. "
+            "Try refreshing and sending your message again in a few seconds."
         )
-        response = raw
 
     new_message = [
         {"role": "user",      "content": user_msg},

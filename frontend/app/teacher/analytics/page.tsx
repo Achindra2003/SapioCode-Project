@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft,
   BarChart3,
   ChevronDown,
   RefreshCw,
@@ -23,7 +22,6 @@ const SSE_URL =
   "/progress/stream/live";
 
 function AnalyticsContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedClassId = searchParams.get("classId") || "";
 
@@ -31,13 +29,11 @@ function AnalyticsContent() {
   const [selectedClassId, setSelectedClassId] = useState(preselectedClassId);
   const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [, setLoadingClasses] = useState(true);
+  const [loadingClasses, setLoadingClasses] = useState(true);
 
   // SSE live connection status
   const [isLive, setIsLive] = useState(false);
   const [lastEvent, setLastEvent] = useState<string | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-
   // Transcript modal
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcriptStudent, setTranscriptStudent] = useState<{ id: string; name: string } | null>(null);
@@ -70,11 +66,6 @@ function AnalyticsContent() {
       .finally(() => setLoadingClasses(false));
   }, [preselectedClassId]);
 
-  useEffect(() => {
-    if (!selectedClassId) return;
-    fetchAnalytics();
-  }, [selectedClassId]);
-
   const fetchAnalytics = useCallback(async () => {
     if (!selectedClassId) return;
     setLoading(true);
@@ -88,12 +79,18 @@ function AnalyticsContent() {
     }
   }, [selectedClassId]);
 
+  useEffect(() => {
+    if (!selectedClassId) return;
+    fetchAnalytics();
+  }, [selectedClassId, fetchAnalytics]);
+
   // ── SSE: live progress stream from backend ───────────────
   useEffect(() => {
     const es = new EventSource(SSE_URL);
-    eventSourceRef.current = es;
 
     es.onopen = () => setIsLive(true);
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     es.onmessage = (e) => {
       try {
@@ -102,10 +99,11 @@ function AnalyticsContent() {
           setLastEvent(
             `${payload.viva_verdict} — ${new Date().toLocaleTimeString()}`
           );
-          // Auto-refresh heatmap when any student makes progress
-          if (selectedClassId) {
+          // Debounce: avoid hammering analytics endpoint on rapid events
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
             fetchAnalytics();
-          }
+          }, 2000);
         }
       } catch {
         // ignore unparseable keepalive frames
@@ -118,10 +116,11 @@ function AnalyticsContent() {
     };
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       es.close();
       setIsLive(false);
     };
-  }, [selectedClassId, fetchAnalytics]);
+  }, [fetchAnalytics]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -153,12 +152,6 @@ function AnalyticsContent() {
     <div className="p-8 max-w-[90rem] mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <button
-          onClick={() => router.push("/teacher")}
-          className="p-2 hover:bg-white/5 rounded-full transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-slate-400" />
-        </button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-[#44f91f]" />
@@ -198,9 +191,10 @@ function AnalyticsContent() {
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#44f91f]/40 focus:outline-none appearance-none"
+            disabled={loadingClasses}
+            className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-[#44f91f]/40 focus:outline-none appearance-none disabled:opacity-50"
           >
-            <option value="">Choose a classroom</option>
+            <option value="">{loadingClasses ? "Loading classrooms…" : "Choose a classroom"}</option>
             {classrooms.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}

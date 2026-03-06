@@ -74,9 +74,9 @@ console.log(solution());
 export const TOPICS: Topic[] = [
   {
     id: "variables-basics",
-    name: "Variables & Basics",
+    name: "Variables & Data Types",
     order: 1,
-    description: "Learn about variables, data types, and basic operations",
+    description: "Variable declaration, type conversion, arithmetic operators, and basic I/O",
     questionIds: [
       "variable-swap",
       "type-conversion",
@@ -89,9 +89,9 @@ export const TOPICS: Topic[] = [
   },
   {
     id: "conditionals",
-    name: "Conditionals",
+    name: "Conditional Logic",
     order: 2,
-    description: "Master if/else statements and boolean logic",
+    description: "If/else branching, boolean expressions, comparison operators, and nested conditions",
     questionIds: [
       "even-or-odd",
       "grade-calculator",
@@ -104,9 +104,9 @@ export const TOPICS: Topic[] = [
   },
   {
     id: "loops",
-    name: "Loops",
+    name: "Loops & Iteration",
     order: 3,
-    description: "Understand for and while loops, iteration patterns",
+    description: "For loops, while loops, nested loops, accumulators, and loop control flow",
     questionIds: [
       "sum-of-n",
       "multiplication-table",
@@ -121,7 +121,7 @@ export const TOPICS: Topic[] = [
     id: "arrays",
     name: "Arrays & Lists",
     order: 4,
-    description: "Work with arrays, lists, and common array operations",
+    description: "Indexing, slicing, searching, sorting, and common array manipulation patterns",
     questionIds: [
       "two-sum",
       "reverse-array",
@@ -134,9 +134,9 @@ export const TOPICS: Topic[] = [
   },
   {
     id: "strings",
-    name: "Strings",
+    name: "String Manipulation",
     order: 5,
-    description: "Master string manipulation and common string algorithms",
+    description: "Character traversal, substrings, pattern matching, and string transformation algorithms",
     questionIds: [
       "palindrome-check",
       "reverse-string",

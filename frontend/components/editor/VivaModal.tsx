@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X, RotateCcw, CheckCircle, XCircle, AlertTriangle,
-  Loader2, Send, Mic, Square, Keyboard,
+  Loader2, Mic, Square, Keyboard, Lightbulb, Shield,
 } from "lucide-react";
 import { vivaApi, VivaAnswerResult, VivaQuestion } from "@/lib/api/ai";
 
@@ -63,6 +63,7 @@ export default function VivaModal({
   // Answer state
   const [lastAnswer, setLastAnswer] = useState<string>("");
   const [lastFeedback, setLastFeedback] = useState<VivaAnswerResult | null>(null);
+  const [hintText, setHintText] = useState<string | null>(null);
 
   // Verdict state
   const [finalVerdict, setFinalVerdict] = useState<string | null>(null);
@@ -133,7 +134,6 @@ export default function VivaModal({
       setQuestionNumber(1);
       setPhase("question");
     } catch (err: unknown) {
-      console.error("Failed to start viva:", err);
       setErrorMsg(err instanceof Error ? err.message : "Failed to start viva session");
       setPhase("error");
     }
@@ -234,10 +234,10 @@ export default function VivaModal({
         const nextQuestion = nextQMatch ? nextQMatch[1].trim() : responseText;
         setCurrentQuestion(nextQuestion);
         setQuestionNumber((n) => n + 1);
+        setHintText(null);
         setPhase("feedback");
       }
     } catch (err: unknown) {
-      console.error("Viva answer error:", err);
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setPhase("error");
     }
@@ -272,7 +272,6 @@ export default function VivaModal({
       // Submit transcribed text for evaluation
       await processAnswer(transcription.text);
     } catch (err: unknown) {
-      console.error("Voice submission error:", err);
       setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
       setPhase("error");
     }
@@ -322,15 +321,23 @@ export default function VivaModal({
       <div className="w-full max-w-2xl glass-panel rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div>
-            <h2 className="text-xl font-bold text-white">Viva Voce Verification</h2>
-            <p className="text-sm text-gray-400">
-              {phase === "initializing"
-                ? "Analyzing your code..."
-                : phase === "verdict"
-                ? "Results"
-                : `Explain your code (Question ${questionNumber}/${totalQuestions})`}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#44f91f]/10 rounded-xl flex items-center justify-center">
+              <Shield className="w-5 h-5 text-[#44f91f]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#44f91f] bg-[#44f91f]/10 px-2 py-0.5 rounded">Reflection Required</span>
+              </div>
+              <h2 className="text-lg font-bold text-white">Metacognitive Defense</h2>
+              <p className="text-xs text-gray-500">
+                {phase === "initializing"
+                  ? "Analyzing your code..."
+                  : phase === "verdict"
+                  ? "Defense complete"
+                  : `Challenge ${questionNumber} of ${totalQuestions}`}
+              </p>
+            </div>
           </div>
           <button onClick={handleClose} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
             <X className="w-5 h-5 text-gray-400" />
@@ -342,7 +349,7 @@ export default function VivaModal({
           {phase === "initializing" && (
             <div className="flex flex-col items-center justify-center py-12 gap-4">
               <Loader2 className="w-10 h-10 text-[#44f91f] animate-spin" />
-              <span className="text-slate-400">Analyzing your code and generating questions...</span>
+              <span className="text-slate-400">Preparing your defense challenges...</span>
             </div>
           )}
 
@@ -376,6 +383,7 @@ export default function VivaModal({
 
               {/* Question */}
               <div className="bg-white/5 rounded-xl p-5 mb-6">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#44f91f] mb-2 block">AI Challenge</span>
                 <p className="text-white text-lg leading-relaxed">{currentQuestion}</p>
               </div>
 
@@ -411,24 +419,50 @@ export default function VivaModal({
                     value={textAnswer}
                     onChange={(e) => setTextAnswer(e.target.value)}
                     onKeyDown={handleKey}
-                    placeholder="Type your explanation..."
+                    placeholder="Explain your reasoning here..."
                     rows={3}
                     className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#44f91f]/40 focus:border-[#44f91f]/50 resize-none"
                   />
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => {
+                        if (hintText) return;
+                        const q = currentQuestion.toLowerCase();
+                        if (q.includes("purpose") || q.includes("what does")) {
+                          setHintText("Think about what the code produces as output and why someone would write it.");
+                        } else if (q.includes("time complexity") || q.includes("big o")) {
+                          setHintText("Count the loops — how many times does each one run relative to the input size?");
+                        } else if (q.includes("improve") || q.includes("better")) {
+                          setHintText("Consider if there are redundant operations or a more efficient data structure.");
+                        } else {
+                          setHintText("Look at your code line by line and explain what each part does in your own words.");
+                        }
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-[#44f91f]/70 hover:text-[#44f91f] transition-colors"
+                    >
+                      <Lightbulb className="w-3 h-3" />
+                      {hintText ? "Hint shown below" : "I need a hint"}
+                    </button>
+                    <button
+                      onClick={() => { setUseTextMode(false); setErrorMsg(null); }}
+                      className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
+                    >
+                      <Mic className="w-3 h-3 inline mr-1" />
+                      Switch to voice
+                    </button>
+                  </div>
+                  {hintText && (
+                    <div className="text-xs text-amber-400/80 bg-amber-500/5 border border-amber-500/10 rounded-lg px-3 py-2">
+                      <Lightbulb className="w-3 h-3 inline mr-1.5 -mt-0.5" />
+                      {hintText}
+                    </div>
+                  )}
                   <button
                     onClick={handleTextSubmit}
                     disabled={!textAnswer.trim()}
                     className="w-full flex items-center justify-center gap-2 bg-[#44f91f] hover:brightness-110 text-black font-bold py-3 rounded-xl transition-all disabled:opacity-50 shadow-[0_0_15px_rgba(68,249,31,0.3)]"
                   >
-                    <Send className="w-4 h-4" />
-                    Submit Answer
-                  </button>
-                  <button
-                    onClick={() => { setUseTextMode(false); setErrorMsg(null); }}
-                    className="text-xs text-gray-500 hover:text-gray-400 underline transition-colors w-full text-center"
-                  >
-                    <Mic className="w-3 h-3 inline mr-1" />
-                    Switch to voice recording
+                    Submit Defense →
                   </button>
                 </div>
               )}
@@ -538,7 +572,7 @@ export default function VivaModal({
                 onClick={proceedToNextQuestion}
                 className="w-full bg-[#44f91f] hover:brightness-110 text-black font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(68,249,31,0.3)]"
               >
-                Next Question →
+                Next Challenge →
               </button>
             </div>
           )}
@@ -549,22 +583,22 @@ export default function VivaModal({
               {(finalVerdict === "pass" || finalVerdict === "PASS") && (
                 <>
                   <CheckCircle className="w-20 h-20 text-[#44f91f] mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-[#44f91f] mb-2">Congratulations!</h3>
-                  <p className="text-slate-400 mb-4">You&apos;ve demonstrated clear understanding of your code.</p>
+                  <h3 className="text-2xl font-bold text-[#44f91f] mb-2">Defense Verified</h3>
+                  <p className="text-slate-400 mb-4">You&apos;ve demonstrated deep understanding of your logic.</p>
                 </>
               )}
               {(finalVerdict === "weak" || finalVerdict === "NEEDS_DETAIL") && (
                 <>
                   <AlertTriangle className="w-20 h-20 text-amber-500 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-amber-400 mb-2">Partial Understanding</h3>
-                  <p className="text-slate-400 mb-4">You understood some concepts but missed a few key details.</p>
+                  <h3 className="text-2xl font-bold text-amber-400 mb-2">Partial Defense</h3>
+                  <p className="text-slate-400 mb-4">Some reasoning was correct but key details are missing.</p>
                 </>
               )}
               {(finalVerdict === "fail" || finalVerdict === "FAIL") && (
                 <>
                   <XCircle className="w-20 h-20 text-red-500 mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold text-red-400 mb-2">Needs Improvement</h3>
-                  <p className="text-slate-400 mb-4">Review the concepts and try explaining your code again.</p>
+                  <h3 className="text-2xl font-bold text-red-400 mb-2">Defense Failed</h3>
+                  <p className="text-slate-400 mb-4">Review the underlying concepts and defend your logic again.</p>
                 </>
               )}
 
@@ -618,7 +652,7 @@ export default function VivaModal({
                       className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
                     >
                       <RotateCcw className="w-4 h-4" />
-                      Retry Viva
+                      Retry Defense
                     </button>
                   </>
                 )}
