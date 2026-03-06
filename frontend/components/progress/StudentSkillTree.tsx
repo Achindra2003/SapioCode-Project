@@ -12,7 +12,7 @@ import { skillTreeApi, type SkillTreeNode, type SkillTreeData } from "@/lib/api/
 
 interface StudentSkillTreeProps {
   userId: string;
-  classId?: string;
+  classId: string;
   onNodeClick?: (node: SkillTreeNode) => void;
 }
 
