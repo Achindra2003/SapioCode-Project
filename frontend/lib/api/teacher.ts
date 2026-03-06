@@ -129,7 +129,7 @@ export interface SkillTreeNode {
 
 export interface SkillTreeData {
   user_id: string;
-  class: { id: string; name: string; cohort_code: string } | null;
+  class: { id: string; name: string; cohort_code: string; teacher_name?: string } | null;
   nodes: SkillTreeNode[];
   total_problems: number;
   mastered_count: number;

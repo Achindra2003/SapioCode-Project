@@ -107,6 +107,9 @@ export default function StudentSkillTree({
               <p className="text-xs text-[#44f91f]/60 uppercase tracking-wider font-semibold">
                 {data.class.name}
               </p>
+              {data.class.teacher_name && (
+                <p className="text-xs text-slate-500 mt-0.5">by {data.class.teacher_name}</p>
+              )}
               <p className="text-sm text-slate-400 mt-1">
                 Code: <span className="font-mono text-[#44f91f]">{data.class.cohort_code}</span>
               </p>

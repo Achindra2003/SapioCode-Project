@@ -178,6 +178,26 @@ def get_topic_progress(user_id: str, topic_id: str):
     return result
 
 
+# ── Helper: resolve teacher name from instructor_id ──────────
+
+def _resolve_teacher_name(instructor_id: str) -> str:
+    """Look up the teacher's full_name given an instructor_id string."""
+    if not instructor_id:
+        return "Teacher"
+    # Try ObjectId first (most common — _id is stored as ObjectId in users)
+    try:
+        teacher_doc = users_collection.find_one({"_id": ObjectId(instructor_id)})
+        if teacher_doc:
+            return teacher_doc.get("full_name", teacher_doc.get("email", "Teacher"))
+    except Exception:
+        pass
+    # Fallback: try as raw string
+    teacher_doc = users_collection.find_one({"_id": instructor_id})
+    if teacher_doc:
+        return teacher_doc.get("full_name", teacher_doc.get("email", "Teacher"))
+    return "Teacher"
+
+
 # ═══════════════════════════════════════════════════════════════
 #  GET /student/{user_id}/classes
 #  Returns all classes the student is enrolled in, with problem counts.
@@ -195,15 +215,7 @@ def get_student_classes(user_id: str):
     for cls in student_classes:
         # Count assigned problems
         assigned = cls.get("topics_assigned", [])
-        # Try to get teacher name — field is "instructor_id" (set in teacher_routes)
-        teacher_id = cls.get("instructor_id", "")
-        teacher_name = "Teacher"
-        if teacher_id:
-            teacher_doc = users_collection.find_one({"_id": teacher_id})
-            if not teacher_doc and ObjectId.is_valid(teacher_id):
-                teacher_doc = users_collection.find_one({"_id": ObjectId(teacher_id)})
-            if teacher_doc:
-                teacher_name = teacher_doc.get("full_name", teacher_doc.get("email", "Teacher"))
+        teacher_name = _resolve_teacher_name(cls.get("instructor_id", ""))
 
         result.append({
             "id": str(cls["_id"]),
@@ -302,6 +314,7 @@ def get_skill_tree(user_id: str, class_id: str = None):
             "id": str(c["_id"]),
             "name": c["name"],
             "cohort_code": c["cohort_code"],
+            "teacher_name": _resolve_teacher_name(c.get("instructor_id", "")),
         }
 
     return {
