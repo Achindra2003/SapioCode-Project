@@ -257,7 +257,12 @@ def get_skill_tree(user_id: str, class_id: str = None):
     student_progress = list(progress_collection.find({"user_id": user_id}))
     progress_map = {sp["question_id"]: sp for sp in student_progress}
 
-    # Build ordered nodes — problems come in creation order
+    # Sort problems by difficulty so the skill tree always flows
+    # beginner → intermediate → advanced, regardless of creation order.
+    _DIFF_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+    problems.sort(key=lambda p: _DIFF_ORDER.get(p.get("difficulty", "beginner"), 1))
+
+    # Build ordered nodes
     nodes = []
     prev_mastered = True  # first node is always unlocked
     for idx, prob in enumerate(problems):

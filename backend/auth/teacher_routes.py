@@ -126,7 +126,8 @@ def get_class(class_id: str, authorization: str | None = Header(None)):
                 "email": u["email"],
             })
 
-    # Resolve assigned problems
+    # Resolve assigned problems, sorted by difficulty (beginner → intermediate → advanced)
+    _DIFF_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
     problem_ids = [ObjectId(pid) for pid in cls.get("topics_assigned", []) if ObjectId.is_valid(pid)]
     problems_cursor = problems_collection.find({"_id": {"$in": problem_ids}}) if problem_ids else []
     problems = []
@@ -138,6 +139,7 @@ def get_class(class_id: str, authorization: str | None = Header(None)):
             "topic": p.get("topic", ""),
             "status": p.get("status", "draft"),
         })
+    problems.sort(key=lambda p: _DIFF_ORDER.get(p["difficulty"], 1))
 
     return {
         "id": str(cls["_id"]),
@@ -223,6 +225,10 @@ def list_problems(class_id: str, authorization: str | None = Header(None)):
 
     problem_ids = [ObjectId(pid) for pid in cls.get("topics_assigned", []) if ObjectId.is_valid(pid)]
     problems = list(problems_collection.find({"_id": {"$in": problem_ids}})) if problem_ids else []
+
+    # Sort by difficulty so the tree always flows beginner → intermediate → advanced
+    _DIFF_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+    problems.sort(key=lambda p: _DIFF_ORDER.get(p.get("difficulty", "beginner"), 1))
 
     result = []
     for p in problems:
@@ -346,6 +352,12 @@ def class_analytics(class_id: str, authorization: str | None = Header(None)):
     if problem_ids:
         for p in problems_collection.find({"_id": {"$in": [ObjectId(pid) for pid in problem_ids]}}):
             problems_map[str(p["_id"])] = p
+
+    # Sort problem_ids by difficulty so columns match the skill tree order
+    _DIFF_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+    problem_ids.sort(key=lambda pid: _DIFF_ORDER.get(
+        problems_map.get(pid, {}).get("difficulty", "beginner"), 1
+    ))
 
     columns = []
     for pid in problem_ids:
