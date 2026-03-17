@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import WarmupPing from "@/components/WarmupPing";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "SapioCode - Intelligent Learning Platform",
@@ -29,8 +30,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="antialiased bg-[#0d130e] text-slate-100">
+      <body className="antialiased">
         <WarmupPing />
+        <ThemeToggle />
         {children}
       </body>
     </html>
