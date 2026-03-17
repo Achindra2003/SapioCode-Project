@@ -522,7 +522,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
         </aside>
 
         <div className="w-1/2 flex flex-col bg-[#0d130e] relative">
-          <div className="min-h-14 flex items-center justify-between px-4 py-2 border-b border-white/5 shrink-0 bg-[#152016]">
+          <div className="min-h-16 flex items-center justify-between px-5 py-3 border-b border-white/5 shrink-0 bg-[#152016]">
             <div className="flex items-center gap-4">
               <LanguageSelector value={language} onChange={(lang) => { setLanguage(lang); setCode(question?.starterCode[lang] || LANGUAGES[lang].starter); }} disabled={status === "running"} />
             </div>
@@ -530,7 +530,7 @@ for (let _i = 0; _i < _testExpressions.length; _i++) {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setIsAIOpen(true)}
-                className="flex items-center gap-2 h-9 px-4 bg-white/5 border border-white/5 hover:border-[#44f91f]/20 hover:bg-[#44f91f]/5 rounded-lg transition-all group"
+                className="flex items-center gap-2 h-10 px-4 bg-white/5 border border-white/5 hover:border-[#44f91f]/20 hover:bg-[#44f91f]/5 rounded-lg transition-all group"
               >
                 <Bot className="w-4 h-4 text-[#44f91f]/60 group-hover:text-[#44f91f]" />
                 <span className="text-xs font-bold text-white/40 group-hover:text-[#44f91f] uppercase tracking-widest">

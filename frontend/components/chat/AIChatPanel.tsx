@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { X, Send, Trash2, Code2, Terminal, AlertTriangle, Brain, Zap, Minus } from "lucide-react";
+import { X, Send, Trash2, Code2, Terminal, AlertTriangle, Brain, Zap } from "lucide-react";
 import { ChatRequest, ChatMessage } from "@/lib/types";
 import { aiApi } from "@/lib/api/ai";
 import { sessionApi } from "@/lib/api/auth";
@@ -348,8 +348,6 @@ export default function AIChatPanel({
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   };
 
-  const [minimized, setMinimized] = useState(false);
-
   // ── Drag-to-move support ──
   const [position, setPosition] = useState({ x: 0, y: 0 }); // offset from default bottom-right
   const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
@@ -392,31 +390,13 @@ export default function AIChatPanel({
     }
   }, [isOpen]);
 
-  // When minimized, show just a small pill
-  if (isOpen && minimized) {
-    return (
-      <button
-        onClick={() => setMinimized(false)}
-        className="fixed bottom-20 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl border border-[#44f91f]/25 bg-[#0f1811]/92 backdrop-blur-xl shadow-xl hover:bg-[#132116]/95 transition-all group"
-      >
-        <span className="w-2 h-2 rounded-full bg-[#44f91f] shadow-[0_0_6px_rgba(68,249,31,0.5)]" />
-        <span className="text-sm font-semibold text-white">Socratic AI</span>
-        {chatHistory.length > 0 && (
-          <span className="ml-1 w-5 h-5 rounded-full bg-[#44f91f]/20 text-[#44f91f] text-[10px] font-bold flex items-center justify-center">
-            {chatHistory.filter(m => m.role === "assistant").length}
-          </span>
-        )}
-      </button>
-    );
-  }
-
   return (
     <div
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
       }}
       className={`fixed bottom-4 right-4 z-50 w-[380px] max-h-[520px] flex flex-col
-        rounded-2xl border border-[#44f91f]/20 bg-[#0f1811]/94 backdrop-blur-xl shadow-2xl shadow-black/50
+        rounded-2xl border border-[#44f91f]/22 bg-[rgba(15,24,17,0.78)] backdrop-blur-2xl shadow-2xl shadow-black/45
         ${isOpen ? "scale-100 opacity-100" : "scale-90 opacity-0 pointer-events-none"}`}
     >
       {/* ── Header (drag handle) ── */}
@@ -438,13 +418,6 @@ export default function AIChatPanel({
               <Trash2 className="w-3.5 h-3.5 text-gray-500 group-hover:text-red-400 transition-colors" />
             </button>
           )}
-          <button
-            onClick={() => setMinimized(true)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all"
-            title="Minimize"
-          >
-            <Minus className="w-3.5 h-3.5 text-gray-400" />
-          </button>
           <button
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all"

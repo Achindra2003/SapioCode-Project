@@ -18,7 +18,7 @@ export default function LanguageSelector({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#44f91f]/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      className="h-10 bg-white/5 border border-white/10 rounded-lg px-3 text-sm font-medium text-white/80 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#44f91f]/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
     >
       {Object.entries(LANGUAGES).map(([key, config]) => (
         <option key={key} value={key} className="bg-[#0d130e] text-white">
