@@ -42,7 +42,7 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      className="fixed top-4 right-4 z-100 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm backdrop-blur-md transition-colors hover:brightness-95"
+      className="fixed bottom-4 left-4 z-100 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm backdrop-blur-md transition-colors hover:brightness-95"
       style={{
         backgroundColor: "var(--surface)",
         borderColor: "var(--border-glow)",

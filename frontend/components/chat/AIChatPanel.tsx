@@ -397,7 +397,7 @@ export default function AIChatPanel({
     return (
       <button
         onClick={() => setMinimized(false)}
-        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl glass-panel border-[#44f91f]/20 shadow-lg hover:bg-white/5 transition-all group"
+        className="fixed bottom-20 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl border border-[#44f91f]/25 bg-[#0f1811]/92 backdrop-blur-xl shadow-xl hover:bg-[#132116]/95 transition-all group"
       >
         <span className="w-2 h-2 rounded-full bg-[#44f91f] shadow-[0_0_6px_rgba(68,249,31,0.5)]" />
         <span className="text-sm font-semibold text-white">Socratic AI</span>
@@ -416,7 +416,7 @@ export default function AIChatPanel({
         transform: `translate(${position.x}px, ${position.y}px)`,
       }}
       className={`fixed bottom-4 right-4 z-50 w-[380px] max-h-[520px] flex flex-col
-        glass-panel rounded-2xl border-[#44f91f]/15 shadow-2xl shadow-black/40
+        rounded-2xl border border-[#44f91f]/20 bg-[#0f1811]/94 backdrop-blur-xl shadow-2xl shadow-black/50
         ${isOpen ? "scale-100 opacity-100" : "scale-90 opacity-0 pointer-events-none"}`}
     >
       {/* ── Header (drag handle) ── */}
