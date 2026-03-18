@@ -93,6 +93,7 @@ function NewProblemContent() {
     setTopic(q.topicId);
     setTargetConcepts(q.concepts || []);
     setStarterCode(q.starterCode?.python3 || "");
+    setMultiLangStarter(q.starterCode ? { ...q.starterCode } : null);
     if (q.testCases?.length) {
       setTestCases(
         q.testCases.map((tc) => ({

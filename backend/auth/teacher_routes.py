@@ -19,6 +19,21 @@ from schemas import CreateProblemRequest, CreateClassRequest, JoinClassRequest, 
 
 router = APIRouter(prefix="/teacher", tags=["Teacher"])
 
+_STARTER_LANGS = ("python3", "java", "cpp17", "nodejs")
+_STARTER_ALIASES = {
+    "python": "python3",
+    "py": "python3",
+    "python3": "python3",
+    "java": "java",
+    "cpp": "cpp17",
+    "c++": "cpp17",
+    "cpp17": "cpp17",
+    "javascript": "nodejs",
+    "js": "nodejs",
+    "node": "nodejs",
+    "nodejs": "nodejs",
+}
+
 
 # ── Auth helper ──────────────────────────────────────────────
 
@@ -38,6 +53,29 @@ def _get_teacher(authorization: str | None):
     if user.get("role") != "teacher":
         raise HTTPException(status_code=403, detail="Teacher access required")
     return user
+
+
+def _normalize_starter_code(raw_starter):
+    """Return a canonical multi-language starter_code dict.
+
+    Canonical keys: python3, java, cpp17, nodejs.
+    Accepts legacy string or dict with alias keys.
+    """
+    starter_code = {lang: "" for lang in _STARTER_LANGS}
+
+    if isinstance(raw_starter, str):
+        starter_code["python3"] = raw_starter
+        return starter_code
+
+    if not isinstance(raw_starter, dict):
+        return starter_code
+
+    for key, value in raw_starter.items():
+        canonical = _STARTER_ALIASES.get(str(key).strip().lower())
+        if canonical:
+            starter_code[canonical] = "" if value is None else str(value)
+
+    return starter_code
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -171,14 +209,8 @@ def create_problem(
     if not cls or cls["instructor_id"] != str(teacher["_id"]):
         raise HTTPException(status_code=404, detail="Class not found")
 
-    # Normalize starter_code: accept str (legacy) or dict (multi-language)
-    raw_starter = body.starter_code
-    if isinstance(raw_starter, dict):
-        starter_code = raw_starter
-    elif isinstance(raw_starter, str) and raw_starter:
-        starter_code = {"python3": raw_starter, "java": "", "cpp17": "", "nodejs": ""}
-    else:
-        starter_code = {"python3": "", "java": "", "cpp17": "", "nodejs": ""}
+    # Normalize starter_code: accept legacy strings, canonical dicts, and alias keys
+    starter_code = _normalize_starter_code(body.starter_code)
 
     # Build problem document
     problem_doc = {
@@ -242,7 +274,7 @@ def list_problems(class_id: str, authorization: str | None = Header(None)):
             "test_cases": p.get("test_cases", []),
             "viva_questions": p.get("viva_questions", []),
             "status": p.get("status", "draft"),
-            "starter_code": p.get("starter_code", ""),
+            "starter_code": _normalize_starter_code(p.get("starter_code")),
             "created_at": p.get("created_at"),
         })
     return result
@@ -275,6 +307,8 @@ def update_problem(
             update_fields[field] = [tc if isinstance(tc, dict) else tc for tc in value]
         elif field == "viva_questions" and value is not None:
             update_fields[field] = [vq if isinstance(vq, dict) else vq for vq in value]
+        elif field == "starter_code":
+            update_fields[field] = _normalize_starter_code(value)
         elif value is not None:
             update_fields[field] = value
 
@@ -489,7 +523,7 @@ def get_problem(problem_id: str):
         "target_concepts": p.get("target_concepts", []),
         "test_cases": safe_test_cases,
         "viva_questions": safe_viva,
-        "starter_code": p.get("starter_code", ""),
+        "starter_code": _normalize_starter_code(p.get("starter_code")),
         "status": p.get("status", "draft"),
     }
 
